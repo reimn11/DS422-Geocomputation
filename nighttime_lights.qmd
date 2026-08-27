@@ -1,0 +1,220 @@
+---
+title: "nighttime_lights.qmd"
+format: html
+editor: visual
+---
+
+## **Installation** 
+
+```{r}
+# install.packages("devtools")
+devtools::install_github("worldbank/blackmarbler")
+```
+
+##  Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+# Load packages
+library(blackmarbler)
+library(geodata)
+library(sf)
+library(terra)
+library(ggplot2)
+library(tidyterra)
+library(lubridate)
+
+#### Define NASA bearer token
+bearer <- "eyJ0eXAiOiJKV1QiLCJvcmlnaW4iOiJFYXJ0aGRhdGEgTG9naW4iLCJzaWciOiJlZGxqd3RwdWJrZXlfb3BzIiwiYWxnIjoiUlMyNTYifQ.eyJ0eXBlIjoiVXNlciIsInVpZCI6InJlaW1uMTciLCJleHAiOjE3OTI4Nzk4MDgsImlhdCI6MTc4NzY5NTgwOCwiaXNzIjoiaHR0cHM6Ly91cnMuZWFydGhkYXRhLm5hc2EuZ292IiwiaWRlbnRpdHlfcHJvdmlkZXIiOiJlZGxfb3BzIiwiYWNyIjoiZWRsIiwiYXNzdXJhbmNlX2xldmVsIjozfQ.RbGg1fsSh6f3RsrcRuVkSKOjNlPePsjwyqfSztNOfKWeUPE3tBw3eD0ENb0raiUq4tctl2Rnn7Ny1OBPYwubr_3qHeiXodARL8nZmbr28OPDAbnRiNyyx0vBt3D8FZEO5M_qEfGxS-Y8j9bikrCOOxaEekNOsNbKTfSVg4aVHSCNWT0cOWkO4_Ne1Vkl-JNrPdjRW6seyNswEISS1Guluo6VYlPsI_ohLxYRRim9Ufjn-nXAWVEIxnBIUqt-nw7RliqUiscG0j8ZVChpRfD5ft6cbAF5V2-0Og710sWZSF-Nc_pykrs1u6uFPp4qS0HFGzpuSW_Y_MRXzjGLCXbAUQ"
+
+### ROI
+# Define region of interest (roi). The roi must be (1) an sf polygon and (2)
+# in the WGS84 (epsg:4326) coordinate reference system. Here, we use the
+# getData function to load a polygon of Ghana
+roi_sf <- gadm(country = "GHA", level=1, path = tempdir()) 
+
+####################################################
+#| eval: false 
+
+options(tigris_use_cache = TRUE)
+library(tigris)
+roi_hawaii <- counties(state = 'HI', cb = TRUE, year = 2022)
+```
+
+```{r}
+#| eval: falase
+library(terra)
+crs(roi_hawaii)
+
+# ID["EPSG/",4269]]"
+```
+
+need to match the ID
+
+```{r}
+#| eval: false
+library(sf)
+roi_hawaii <- roi_hawaii |> st_transform(4326) |> 
+  st_crop(xmin = -160.5, xmax = -154.5, ymin = 18.5, ymax = 22.5)
+crs(roi_hawaii)
+```
+
+```{r}
+#| eval:false
+library(blackmarbler)
+
+bearer <- get_nasa_token(username = "reimn17", 
+                         password = "C534dpcry/6b/#/")
+
+r <- bm_raster(roi_sf = roi_hawaii,
+               product_id = "VNP46A3", # VNP46A2 request the montly ,VNP46A2 is daily
+               date = "2025-10-01",
+               bearer = bearer)
+```
+
+```{r}
+bearer <- get_nasa_token(username = "reimn17", 
+                         password = "C534dpcry/6b/#/")
+```
+
+```{r}
+# Preparing data 
+#| eval:false
+library(terra)
+
+r <- r |> terra::mask(roi_hawaii)
+r[] <- log(r[] + 1)
+```
+
+### **Make raster of nighttime lights**
+
+```{r}
+### Daily data: raster for February 5, 2021
+r_20210205 <- bm_raster(roi_sf = roi_sf,
+                        product_id = "VNP46A2",
+                        date = "2021-02-05",
+                        bearer = bearer)
+
+### Monthly data: raster for October 2021
+r_202110 <- bm_raster(roi_sf = roi_sf,
+                      product_id = "VNP46A3",
+                      date = "2021-10-01", # The day is ignored
+                      bearer = bearer)
+
+### Annual data: raster for 2021
+r_2021 <- bm_raster(roi_sf = roi_sf,
+                    product_id = "VNP46A4",
+                    date = 2021,
+                    bearer = bearer)
+```
+
+### **Make raster of nighttime lights across multiple time periods** 
+
+```{r}
+#### Daily data in March 2021
+r_daily <- bm_raster(roi_sf = roi_sf,
+                     product_id = "VNP46A2",
+                     date = seq.Date(from = ymd("2021-03-01"), to = ymd("2021-03-31"), by = "day"),
+                     bearer = bearer)
+
+#### Monthly aggregated data in 2021 and 2022
+r_monthly <- bm_raster(roi_sf = roi_sf,
+                       product_id = "VNP46A3",
+                       date = seq.Date(from = ymd("2021-01-01"), to = ymd("2022-12-01"), by = "month"),
+                       bearer = bearer)
+
+#### Yearly aggregated data in 2012 and 2021
+r_annual <- bm_raster(roi_sf = roi_sf,
+                      product_id = "VNP46A4",
+                      date = 2012:2021,
+                      bearer = bearer)
+```
+
+**Map of nighttime lights**
+
+Using one of the rasters, we can make a map of nighttime lights
+
+```{r}
+#### Make raster
+r <- bm_raster(roi_sf = roi_sf,
+               product_id = "VNP46A3",
+               date = "2021-10-01",
+               bearer = bearer)
+
+#### Prep data
+r <- r |> terra::mask(roi_sf)
+
+## Distribution is skewed, so log
+r[] <- log(r[] + 1)
+
+##### Map
+ggplot() +
+  geom_spatraster(data = r) +
+  scale_fill_gradient2(low = "black",
+                       mid = "yellow",
+                       high = "red",
+                       midpoint = 4.5,
+                       na.value = "transparent") +
+  labs(title = "Nighttime Lights: October 2021") +
+  coord_sf() +
+  theme_void() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        legend.position = "none")
+```
+
+### **Trends over time**
+
+```{r}
+#### Extract annual data
+ntl_df <- bm_extract(roi_sf = roi_sf,
+                     product_id = "VNP46A4",
+                     date = 2012:2022,
+                     bearer = bearer)
+
+
+```
+
+```{r}
+#### Trends over time
+ntl_df |>
+  ggplot() +
+  geom_col(aes(x = date,
+               y = ntl_sum),
+           fill = "darkorange") +
+  facet_wrap(~NAME_1) +
+  labs(x = NULL,
+       y = "NTL Luminosity",
+       title = "Ghana Admin Level 1: Annual Average Nighttime Lights") +
+  scale_x_continuous(labels = seq(2012, 2022, 4),
+                     breaks = seq(2012, 2022, 4)) +
+  theme_minimal() +
+  theme(strip.text = element_text(face = "bold"))
+```
+
+### **Workflow to update data**
+
+```{r}
+# Create directories to store data
+dir.create(file.path(getwd(), "bm_files"))
+dir.create(file.path(getwd(), "bm_files", "daily"))
+
+# Extract daily-level nighttime lights data for Ghana's first administrative divisions.
+# Save a separate dataset for each date in the `"~/Desktop/bm_files/daily"` directory.
+# The code extracts data from January 1, 2023 to today. Given that daily nighttime lights
+# data is produced on roughly a week delay, the function will only extract data that exists;
+# it will skip extracting data for dates where data has not yet been produced by NASA Black Marble.
+bm_extract(roi_sf = roi_sf,
+           product_id = "VNP46A2",
+           date = seq.Date(from = ymd("2023-01-01"), to = Sys.Date(), by = 1),
+           bearer = bearer,
+           output_location_type = "file",
+           file_dir = file.path(getwd(), "bm_files", "daily"))
+
+# Append daily-level datasets into one file
+file.path(getwd(), "bm_files", "daily") |>
+  list.files(pattern = "*.Rds",
+             full.names = T) |>
+  map_df(readRDS) |>
+  saveRDS(file.path(getwd(), "bm_files", "ntl_daily.Rds"))Workflow to update data
+```
