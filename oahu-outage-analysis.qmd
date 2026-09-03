@@ -36,8 +36,8 @@ NASA Earthdata credentials are needed to pull Black Marble data. Store these as 
 
 ```{r bearer-token}
 
-bearer <- get_nasa_token(username = "connorflynn", 
-                         password = "EarthData120")
+bearer <- get_nasa_token(username = "reimn17", 
+                         password = "C534dpcry/6b/#/")
 ```
 
 ## Finding the right night to look at
@@ -123,9 +123,15 @@ eagle_i_hawaii |>
 The baseline is the 10 days immediately preceding the storm. This window happens to overlap Kilauea's summit eruption, which entered its fourth eruptive episode on January 15, 2025 and was still actively fountaining as of the January 18 HVO report. That's kept in the baseline intentionally rather than avoided, since its effect on Hawaii County shows up clearly in the county-level chart further down.
 
 ```{r set-dates}
+# from 2026-08-03 to 2026-08-13 for baseline - average
+# from 2026-08-14 to 2026-08-16 for storm - day by day
+# form 2026-08-17 to 2026-08-21 for after - day by day
 storm_dates <- storm_date_label
+
+# Copy it three time for baseline, storm, recovery
 baseline_dates <- seq.Date(from = as.Date("2025-01-15"), to = as.Date("2025-01-24"), by = "day")
-all_dates <- c(baseline_dates, storm_dates)
+
+all_dates <- c(baseline_dates, storm_dates) # add recovey_dates
 ```
 
 ## Hawaii boundary
@@ -168,8 +174,10 @@ message("Dates dropped (no imagery / failed): ",
 
 r_all <- rast(r_list)
 
+# ADD recovery version line
 baseline_ok <- intersect(as.character(baseline_dates), names(r_all))
 storm_ok <- intersect(as.character(storm_dates), names(r_all))
+
 
 r_baseline <- r_all[[baseline_ok]]
 r_storm <- r_all[[storm_ok]]
@@ -180,15 +188,16 @@ r_storm <- r_all[[storm_ok]]
 Everything from here on stays on the raw radiance scale. Log transforms are applied only when needed for a plot, and always fresh, never on top of an already-logged raster.
 
 ```{r mask-completeness}
+# add recovery ver.
 r_baseline <- terra::mask(r_baseline, roi_hawaii)
 r_storm <- terra::mask(r_storm, roi_hawaii)
 
 completeness_check <- tibble(
-  date = c(baseline_ok, storm_ok),
-  period = c(rep("Baseline", length(baseline_ok)), rep("Storm", length(storm_ok))),
+  date = c(baseline_ok, storm_ok), #add recovery
+  period = c(rep("Baseline", length(baseline_ok)), rep("Storm", length(storm_ok))), #
   n_valid_pixels = c(
     sapply(seq_len(nlyr(r_baseline)), function(i) sum(!is.na(values(r_baseline[[i]])))),
-    sapply(seq_len(nlyr(r_storm)), function(i) sum(!is.na(values(r_storm[[i]]))))
+    sapply(seq_len(nlyr(r_storm)), function(i) sum(!is.na(values(r_storm[[i]])))) #
   )
 )
 print(completeness_check)
@@ -214,7 +223,7 @@ extract_from_local <- function(raster_stack, roi_sf) {
 ntl_trend <- bind_rows(
   extract_from_local(r_baseline, roi_hawaii) |> mutate(period = "Baseline"),
   extract_from_local(r_storm, roi_hawaii) |> mutate(period = "Storm")
-)
+) #
 
 statewide_trend <- ntl_trend |>
   group_by(date, period) |>
@@ -222,7 +231,7 @@ statewide_trend <- ntl_trend |>
 
 ggplot(statewide_trend, aes(x = date, y = ntl_mean, fill = period)) +
   geom_col() +
-  scale_fill_manual(values = c("Baseline" = "grey70", "Storm" = "firebrick")) +
+  scale_fill_manual(values = c("Baseline" = "grey70", "Storm" = "firebrick")) + # we need to change the date 
   labs(title = "Statewide Mean Nighttime Radiance by Day",
        subtitle = paste0("Baseline (Jan 15-24, 2025) vs. Storm Night (", storm_date_label, ")"),
        x = NULL, y = "Mean radiance", fill = NULL) +
@@ -233,7 +242,7 @@ Breaking this out by county shows Hawaii County's baseline sitting well above wh
 
 ```{r county-facet}
 kilauea_dates <- ntl_trend |>
-  filter(county == "Hawaii", period == "Baseline", date >= as.Date("2025-01-15")) |>
+  filter(county == "Hawaii", period == "Baseline", date >= as.Date("2025-01-15")) |> # change date to 2026-08-03 
   pull(date)
 
 ggplot(ntl_trend, aes(x = date, y = ntl_mean, fill = period)) +
@@ -244,7 +253,7 @@ ggplot(ntl_trend, aes(x = date, y = ntl_mean, fill = period)) +
     inherit.aes = FALSE
   ) +
   facet_wrap(~county, scales = "free_y") +
-  scale_fill_manual(values = c("Baseline" = "grey70", "Storm" = "firebrick")) +
+  scale_fill_manual(values = c("Baseline" = "grey70", "Storm" = "firebrick")) + #
   labs(title = "Mean Nighttime Radiance by Day, by County",
        subtitle = "Asterisks on Hawaii County mark nights during Kilauea's active summit eruption (Episode 4, began Jan 15, 2025) — lava glow, not grid activity",
        x = NULL, y = "Mean radiance", fill = NULL) +
@@ -259,7 +268,11 @@ EAGLE-I's overpass-window numbers show Honolulu County with the largest customer
 oahu_boundary <- roi_hawaii |> filter(county == "Honolulu")
 
 baseline_mean <- mean(r_baseline, na.rm = TRUE) |> crop(oahu_boundary) |> mask(oahu_boundary)
+
+# need to create day by day
 storm_mean <- mean(r_storm, na.rm = TRUE) |> crop(oahu_boundary) |> mask(oahu_boundary)
+
+# day by day for recovery
 ```
 
 ## Pixel-level comparison
@@ -267,13 +280,14 @@ storm_mean <- mean(r_storm, na.rm = TRUE) |> crop(oahu_boundary) |> mask(oahu_bo
 Every pixel has both a baseline value and a storm-night value. Plotting them against each other directly, pixel by pixel, is a more direct comparison than looking at either distribution separately.
 
 ```{r paired-scatter}
+# multiple indipendent graph 
 paired_values <- tibble(
   baseline = values(baseline_mean)[, 1],
   storm = values(storm_mean)[, 1]
 ) |>
   filter(!is.na(baseline), !is.na(storm))
 
-ggplot(paired_values, aes(x = baseline, y = storm)) +
+ggplot(paired_values, aes(x = baseline, y = storm)) + #
   geom_point(alpha = 0.15, size = 0.5) +
   geom_abline(slope = 1, intercept = 0, color = "firebrick", linetype = "dashed") +
   labs(title = paste0("Oahu: Storm vs. Baseline Radiance, Per Pixel (", storm_date_label, ")"),
