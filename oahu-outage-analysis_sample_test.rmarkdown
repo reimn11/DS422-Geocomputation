@@ -29,7 +29,7 @@ options(tigris_use_cache = TRUE)
 ```
 
 ```{r}
-embed_url("https://www.youtube.com/watch?v=QiCxG9V0-fw")
+#embed_url("https://www.youtube.com/watch?v=QiCxG9V0-fw")
 ```
 
 NASA Earthdata credentials are needed to pull Black Marble data. Store these as environment variables rather than typing them directly into a script.
@@ -45,77 +45,77 @@ bearer <- get_nasa_token(username = "reimn17",
 VIIRS, the satellite behind Black Marble, passes over Hawaii at roughly 1-2 AM local time. Rather than picking whichever night had the worst outages overall, we look specifically at what EAGLE-I reported during that 1-2 AM window, since that's the moment a Black Marble image for a given date would actually be capturing.
 
 ```{r eagle-i-load}
-eagle_i_hawaii <- read_feather(here("data/hawaii_outages_2025.feather")) |>
-  filter(county != "Kalawao")
+#eagle_i_hawaii <- read_feather(here("data/hawaii_outages_2025.feather")) |>
+#  filter(county != "Kalawao")
 
-message("run_start_time timezone: ", attr(eagle_i_hawaii$run_start_time, "tzone"))
+#message("run_start_time timezone: ", attr(eagle_i_hawaii$run_start_time, "tzone"))
 ```
 
 `run_start_time` is stored in UTC. Hawaii is UTC-10 with no daylight saving, so the local overpass window has to be found in HST, not by filtering UTC hours directly.
 
 ```{r eagle-i-hst}
-eagle_i_hawaii <- eagle_i_hawaii |>
-  mutate(run_start_time_hst = with_tz(run_start_time, tzone = "Pacific/Honolulu"))
+#eagle_i_hawaii <- eagle_i_hawaii |>
+#  mutate(run_start_time_hst = with_tz(run_start_time, tzone = "Pacific/Honolulu"))
 
-overpass_window <- eagle_i_hawaii |>
-  mutate(
-    hour = hour(run_start_time_hst),
-    date = as.Date(run_start_time_hst)
-  ) |>
-  filter(hour %in% c(1, 2))
+#overpass_window <- eagle_i_hawaii |>
+#  mutate(
+#    hour = hour(run_start_time_hst),
+#    date = as.Date(run_start_time_hst)
+#  ) |>
+#  filter(hour %in% c(1, 2))
 ```
 
 Each date is scored on how large and how widespread the outage was, specifically within that overpass window.
 
 ```{r overpass-summary}
-overpass_summary <- overpass_window |>
-  group_by(date) |>
-  summarize(
-    mean_customers_out = mean(customers_out, na.rm = TRUE),
-    max_customers_out = max(customers_out, na.rm = TRUE),
-    n_counties_affected = n_distinct(county[customers_out > 0]),
-    .groups = "drop"
-  ) |>
-  mutate(
-    score = scales::rescale(max_customers_out) +
-      scales::rescale(n_counties_affected)
-  ) |>
-  arrange(desc(score))
+#overpass_summary <- overpass_window |>
+#  group_by(date) |>
+#  summarize(
+#    mean_customers_out = mean(customers_out, na.rm = TRUE),
+#    max_customers_out = max(customers_out, na.rm = TRUE),
+#    n_counties_affected = n_distinct(county[customers_out > 0]),
+#    .groups = "drop"
+#  ) |>
+#  mutate(
+#    score = scales::rescale(max_customers_out) +
+#      scales::rescale(n_counties_affected)
+#  ) |>
+#  arrange(desc(score))
 
-print(overpass_summary)
+#print(overpass_summary)
 ```
 
 ```{r storm-date}
-storm_date_label <- overpass_summary$date[1]
-message("Selected storm date (by overpass-window severity): ", storm_date_label)
+#storm_date_label <- overpass_summary$date[1]
+#message("Selected storm date (by overpass-window severity): ", storm_date_label)
 
-overpass_window |>
-  filter(date == storm_date_label) |>
-  summarize(
-    mean_customers_out_at_overpass = mean(customers_out, na.rm = TRUE),
-    max_customers_out_at_overpass = max(customers_out, na.rm = TRUE),
-    n_counties_affected_at_overpass = n_distinct(county[customers_out > 0])
-  )
+#overpass_window |>
+#  filter(date == storm_date_label) |>
+#  summarize(
+#    mean_customers_out_at_overpass = mean(customers_out, na.rm = TRUE),
+#    max_customers_out_at_overpass = max(customers_out, na.rm = TRUE),
+#    n_counties_affected_at_overpass = n_distinct(county[customers_out > 0])
+#  )
 ```
 
 The chart below shows the full outage timeline around the selected date, with the actual 1-2 AM overpass window shaded rather than marked with a single instantaneous line, since the exact overpass moment within that window isn't known precisely.
 
 ```{r overpass-timeline}
-overpass_start <- as.POSIXct(paste(storm_date_label, "01:00:00"),
-                              tz = "Pacific/Honolulu")
-overpass_end <- as.POSIXct(paste(storm_date_label, "02:59:59"),
-                            tz = "Pacific/Honolulu")
+#overpass_start <- as.POSIXct(paste(storm_date_label, "01:00:00"),
+#                              tz = "Pacific/Honolulu")
+#overpass_end <- as.POSIXct(paste(storm_date_label, "02:59:59"),
+#                            tz = "Pacific/Honolulu")
 
-eagle_i_hawaii |>
-  filter(as.Date(run_start_time_hst) %in% (storm_date_label + c(-1, 0))) |>
-  ggplot(aes(x = run_start_time_hst, y = customers_out, color = county)) +
-  geom_rect(aes(xmin = overpass_start, xmax = overpass_end, ymin = -Inf, ymax = Inf),
-            inherit.aes = FALSE, fill = "grey85", alpha = 0.5) +
-  geom_line(linewidth = 0.6) +
-  labs(title = paste0("Outage Timeline — VIIRS Overpass Window Shaded (", storm_date_label, ")"),
-       subtitle = "Shaded band shows the ~1-2 AM HST window Black Marble would have actually captured",
-       x = NULL, y = "Customers without power (HST)", color = "County") +
-  theme_minimal()
+#eagle_i_hawaii |>
+#  filter(as.Date(run_start_time_hst) %in% (storm_date_label + c(-1, 0))) |>
+#  ggplot(aes(x = run_start_time_hst, y = customers_out, color = county)) +
+#  geom_rect(aes(xmin = overpass_start, xmax = overpass_end, ymin = -Inf, ymax = Inf),
+#            inherit.aes = FALSE, fill = "grey85", alpha = 0.5) +
+#  geom_line(linewidth = 0.6) +
+#  labs(title = paste0("Outage Timeline — VIIRS Overpass Window Shaded (", #storm_date_label, ")"),
+#       subtitle = "Shaded band shows the ~1-2 AM HST window Black Marble would have #actually captured",
+#       x = NULL, y = "Customers without power (HST)", color = "County") +
+#  theme_minimal()
 ```
 
 ## Setting the baseline and storm dates
@@ -126,18 +126,24 @@ The baseline is the 10 days immediately preceding the storm. This window happens
 # from 2026-08-03 to 2026-08-13 for baseline - average
 # from 2026-08-14 to 2026-08-16 for storm - day by day
 # form 2026-08-17 to 2026-08-21 for after - day by day
-storm_dates <- storm_date_label
-
-baseline_dates <- seq.Date(from = as.Date("2026-08-03"),
-                           to   = as.Date("2026-08-13"), by = "day")
-
-storm_dates <- seq.Date(from = as.Date("2026-08-14"),
-                           to   = as.Date("2026-08-16"), by = "day")
-
-recovery_dates <- seq.Date(from = as.Date("2026-08-17"),
-                           to   = as.Date("2026-08-21"), by = "day")
+baseline_dates <- seq.Date(as.Date("2026-08-03"), as.Date("2026-08-13"), by = "day")
+storm_dates    <- seq.Date(as.Date("2026-08-14"), as.Date("2026-08-17"), by = "day")
+recovery_dates <- seq.Date(as.Date("2026-08-18"), as.Date("2026-08-21"), by = "day")
 
 all_dates <- c(baseline_dates, storm_dates, recovery_dates)
+
+period_lookup <- tibble(
+  date = all_dates,
+  period = factor(
+    c(rep("Baseline", length(baseline_dates)),
+      rep("Storm",    length(storm_dates)),
+      rep("Recovery", length(recovery_dates))),
+    levels = c("Baseline", "Storm", "Recovery")
+  )
+)
+
+period_colors <- c(Baseline = "grey70", Storm = "firebrick", Recovery = "steelblue")
+storm_window_label <- "Hurricane Lala, Aug 14-17, 2026"
 ```
 
 ## Hawaii boundary
@@ -179,6 +185,8 @@ message("Dates dropped (no imagery / failed): ",
         paste(setdiff(as.character(all_dates), names(r_list)), collapse = ", "))
 
 r_all <- rast(r_list)
+names(r_all) <- names(r_list)
+# Combine 
 
 # Rec
 baseline_ok <- intersect(as.character(baseline_dates), names(r_all))
@@ -287,14 +295,19 @@ EAGLE-I's overpass-window numbers show Honolulu County with the largest customer
 ```{r scope-oahu}
 oahu_boundary <- roi_hawaii |> filter(county == "Honolulu")
 
-baseline_mean <- mean(r_baseline, na.rm = TRUE) |> crop(oahu_boundary) |> mask(oahu_boundary)
+baseline_mean <- app(r_baseline, mean, na.rm = TRUE) |>
+  crop(oahu_boundary) |> mask(oahu_boundary)
+baseline_sd <- app(r_baseline, sd, na.rm = TRUE) |>
+  crop(oahu_boundary) |> mask(oahu_boundary)
+names(baseline_mean) <- "baseline_mean"
+names(baseline_sd)   <- "baseline_sd"
 
-# need to create day by day
-storm_stack <- r_storm |> crop(oahu_boundary) |> mask(oahu_boundary)
+storm_stack    <- r_storm    |> crop(oahu_boundary) |> mask(oahu_boundary)
+recovery_stack <- r_recovery |> crop(oahu_boundary) |> mask(oahu_boundary)
 
-# day by day for recovery
-storm_stack <- r_storm |> crop(oahu_boundary) |> mask(oahu_boundary)
-
+# Storm and recovery nights as one stack — this is what the day-by-day
+# maps facet over, and what replaces the old single-layer `storm_mean`.
+event_stack <- c(storm_stack, recovery_stack)
 ```
 
 ## Pixel-level comparison
@@ -302,53 +315,95 @@ storm_stack <- r_storm |> crop(oahu_boundary) |> mask(oahu_boundary)
 Every pixel has both a baseline value and a storm-night value. Plotting them against each other directly, pixel by pixel, is a more direct comparison than looking at either distribution separately.
 
 ```{r paired-scatter}
-# multiple indipendent graph 
+peak_storm <- "2026-08-15"   # darkest night — check your completeness table
+last_night <- "2026-08-21"   # end of recovery window
+
 paired_values <- tibble(
   baseline = values(baseline_mean)[, 1],
-  storm = values(storm_stack)[, 1],
-  recovery = values(recovery_stack)[, 1]
+  storm    = values(storm_stack[[peak_storm]])[, 1],
+  recovery = values(recovery_stack[[last_night]])[, 1]
 ) |>
   filter(!is.na(baseline), !is.na(storm), !is.na(recovery))
 
-ggplot(paired_values, aes(x = baseline, y = storm)) + #
-  geom_point(alpha = 0.15, size = 0.5) +
+paired_values |>
+  pivot_longer(c(storm, recovery), names_to = "phase", values_to = "radiance") |>
+  mutate(phase = factor(phase, levels = c("storm", "recovery"),
+                        labels = c(paste("Storm:", peak_storm),
+                                   paste("Recovered:", last_night)))) |>
+  ggplot(aes(x = baseline, y = radiance)) +
+  geom_point(alpha = 0.12, size = 0.5) +
   geom_abline(slope = 1, intercept = 0, color = "firebrick", linetype = "dashed") +
-  labs(title = paste0("Oahu: Storm vs. Baseline Radiance, Per Pixel (", storm_date_label, ")"),
-       subtitle = "Points below the dashed line got darker; above got brighter",
-       x = "Baseline radiance", y = "Storm-night radiance") +
-  theme_minimal()
-
-ggplot(paired_values, aes(x = baseline, y = recovery)) + #
-  geom_point(alpha = 0.15, size = 0.5) +
-  geom_abline(slope = 1, intercept = 0, color = "blue", linetype = "dashed") +
-  labs(title = paste0("Oahu: After Storm vs. Baseline Radiance, Per Pixel (", storm_date_label, ")"),
-       subtitle = "Points below the dashed line got darker; above got brighter",
-       x = "Baseline radiance", y = "After storm radiance") +
-  theme_minimal()
-
-ggplot(paired_values, aes(x = recovery, y = storm)) + #
-  geom_point(alpha = 0.15, size = 0.5) +
-  geom_abline(slope = 1, intercept = 0, color = "green", linetype = "dashed") +
-  labs(title = paste0("Oahu: Storm vs. After Storm Radiance, Per Pixel (", storm_date_label, ")"),
-       subtitle = "Points below the dashed line got darker; above got brighter",
-       x = "After Storm radiance", y = "Storm-night radiance") +
+  facet_wrap(~phase) +
+  labs(title = "Oʻahu: Per-Pixel Radiance vs. Baseline",
+       subtitle = paste0(storm_window_label,
+                         " — points below the line are darker than normal"),
+       x = "Baseline radiance", y = "Night radiance") +
   theme_minimal()
 ```
 
 ```{r darkened-count}
 paired_values |>
   summarize(
-    n_darkened = sum(storm < baseline),
-    n_total = n(),
-    pct_darkened = round(mean(storm < baseline) * 100, 1)
+    n_total              = n(),
+    pct_darkened_storm   = round(mean(storm    < baseline) * 100, 1),
+    pct_darkened_recovery = round(mean(recovery < baseline) * 100, 1)
   )
+```
+
+```{r}
+baseline_vec <- values(baseline_mean)[, 1]
+
+darkened_one <- function(stack, period_label) {
+  vals <- values(stack)          # extract once, not once per layer
+  map_dfr(seq_len(nlyr(stack)), function(i) {
+    tibble(baseline = baseline_vec, night = vals[, i]) |>
+      filter(!is.na(baseline), !is.na(night)) |>
+      summarize(
+        date         = as.Date(names(stack)[i]),
+        period       = period_label,
+        n_darkened   = sum(night < baseline),
+        n_total      = n(),
+        pct_darkened = round(mean(night < baseline) * 100, 1)
+      )
+  })
+}
+
+darkened_by_night <- bind_rows(
+  darkened_one(storm_stack,    "Storm"),
+  darkened_one(recovery_stack, "Recovery")
+) |>
+  mutate(period = factor(period, levels = c("Storm", "Recovery")))
+
+print(darkened_by_night)
+```
+
+```{r}
+ggplot(darkened_by_night, aes(x = as.Date(date), y = pct_darkened, fill = period)) +
+  geom_col() +
+  scale_fill_manual(values = c("Storm" = "firebrick", "Recovery" = "steelblue")) +
+  labs(title = "Share of Oahu pixels darker than baseline, by night",
+       x = NULL, y = "% of pixels darkened", fill = NULL) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(darkened_by_night, aes(x = as.Date(date), y = pct_darkened, fill = period)) +
+  geom_col() +
+  geom_hline(yintercept = 50, linetype = "dashed", color = "grey30") +
+  scale_fill_manual(values = c("Storm" = "firebrick", "Recovery" = "steelblue")) +
+  scale_x_date(date_breaks = "1 day", date_labels = "%b %d") +
+  labs(title = "Share of Oʻahu pixels darker than baseline, by night",
+       subtitle = "50% (dashed) is what pure night-to-night noise produces",
+       x = NULL, y = "% of pixels darkened", fill = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 Splitting pixels by how bright they normally are shows the darkening rate climbing steadily with brightness — close to a coin flip among the dimmest pixels, and close to universal among the brightest.
 
 ```{r brightness-bins}
 paired_values |>
-  mutate(brightness_bin = cut(baseline, breaks = c(0, 5, 25, 75, 250),
+  mutate(brightness_bin = cut(baseline, breaks = c(0, 5, 25, 75, Inf),
                                labels = c("Very dim", "Dim", "Medium", "Bright"))) |>
   group_by(brightness_bin) |>
   summarize(n = n(), pct_darkened = round(mean(storm < baseline) * 100, 1))
@@ -393,10 +448,10 @@ storm_meaningful <- mask(storm_stack, meaningful_mask, maskvalues = FALSE)
 recovery_meaningful <- mask(recovery_stack, meaningful_mask, maskvalues = FALSE)#Rec
 
 abs_change_meaningful <- c(storm_meaningful, recovery_meaningful) - baseline_meaningful
-print(minmax(abs_change_meaningful))
+names(abs_change_meaningful) <- c(names(storm_stack), names(recovery_stack))
 
 pct_change_meaningful <- abs_change_meaningful / baseline_meaningful * 100
-print(minmax(pct_change_meaningful))
+names(pct_change_meaningful) <- names(abs_change_meaningful)
 ```
 
 ## Accounting for how much each pixel normally varies
@@ -404,6 +459,7 @@ print(minmax(pct_change_meaningful))
 Absolute and percent change both treat every pixel's baseline as a fixed, single number. In reality some pixels are naturally stable night to night, and others swing quite a bit even without anything unusual happening. A z-score accounts for that by scaling the change against each pixel's own typical variability.
 
 ```{r variability}
+median(sd_values$sd)
 r_baseline_oahu <- crop(r_baseline, oahu_boundary) |> mask(oahu_boundary)
 baseline_sd_oahu <- app(r_baseline_oahu, sd, na.rm = TRUE)
 
@@ -442,10 +498,13 @@ sd_threshold_oahu <- quantile(values(baseline_sd_oahu), 0.1, na.rm = TRUE)
 baseline_sd_oahu_masked <- baseline_sd_oahu
 baseline_sd_oahu_masked[baseline_sd_oahu_masked < sd_threshold_oahu] <- NA
 
-z_score_oahu <- (storm_mean - baseline_mean) / baseline_sd_oahu_masked
-print(minmax(z_score_oahu))
+event_stack <- c(storm_stack, recovery_stack)
+event_meaningful <- mask(event_stack, meaningful_mask, maskvalues = FALSE)
+names(event_meaningful) <- names(event_stack)
 
-z_score_meaningful <- mask(z_score_oahu, meaningful_mask, maskvalues = FALSE)
+z_score_meaningful <- (event_meaningful - baseline_meaningful) / baseline_sd_oahu_masked
+names(z_score_meaningful) <- names(event_stack)
+
 print(minmax(z_score_meaningful))
 ```
 
@@ -538,7 +597,7 @@ metrics_table |>
     row.striping.background_color = "#fafafa"
   ) |>
   tab_footnote(
-    footnote = "All examples use radiance units consistent with VNP46A2's default variable. Baseline mean/SD computed across 10 pre-storm nights; storm value from a single overpass.",
+    footnote = "Baseline mean/SD computed across 7 pre-storm nights (Aug 3-6 returned no imagery); each event night compared individually.",
     locations = cells_title(groups = "subtitle")
   )
 ```
@@ -546,44 +605,41 @@ metrics_table |>
 ## Mapping the change
 
 ```{r map-abs-change}
+#| fig-height: 8
 ggplot() +
   geom_spatraster(data = abs_change_meaningful) +
+  facet_wrap(~lyr, ncol = 4) +
   scale_fill_gradient2(
     low = "darkred", mid = "white", high = "darkgreen", midpoint = 0,
     na.value = "grey90", name = "Absolute\nchange"
   ) +
-  labs(title = "Oahu: Absolute Radiance Change — Dim/Medium/Bright Pixels Only",
-       subtitle = paste0("Baseline vs. Storm Night (", storm_date_label, "); Very dim pixels (noise floor) excluded")) +
+  labs(title = "Oʻahu: Absolute Radiance Change vs. Baseline",
+       subtitle = "Red = darker than normal. Aug 14-17 storm, Aug 18-21 recovery. Very dim pixels excluded.") +
   coord_sf() +
-  theme_minimal()
+  theme_minimal() +
+  theme(axis.text = element_blank())
 ```
 
 ```{r map-abs-change-tmap}
 tmap_mode("view")
 
-tm_shape(abs_change_meaningful) +
+tm_shape(abs_change_meaningful[["2026-08-15"]]) +
   tm_raster(
-    palette = "rd_yl_gn",
-    midpoint = 0,
-    title = "Absolute change",
-    style = "cont"
+    col.scale  = tm_scale_continuous(midpoint = 0, values = "rd_yl_gn"),
+    col.legend = tm_legend(title = "Absolute change, Aug 15")
   ) +
-  tm_basemap("CartoDB.DarkMatter") +
-  tm_layout(title = "Oahu: Radiance Change — Meaningful Pixels Only")
+  tm_basemap("CartoDB.DarkMatter")
 ```
 
 ```{r map-zscore-tmap}
 tmap_mode("view")
 
-tm_shape(z_score_meaningful) +
+tm_shape(z_score_meaningful[["2026-08-15"]]) +
   tm_raster(
-    palette = "rd_yl_gn",
-    midpoint = 0,
-    title = "Z-score",
-    style = "cont"
+    col.scale  = tm_scale_continuous(midpoint = 0, values = "rd_yl_gn"),
+    col.legend = tm_legend(title = "Z-score, Aug 15")
   ) +
-  tm_basemap("CartoDB.DarkMatter") +
-  tm_layout(title = "Oahu: Radiance Z-Score — Meaningful Pixels Only")
+  tm_basemap("CartoDB.DarkMatter")
 ```
 
 ## Z-score by community
@@ -595,31 +651,42 @@ oahu_places <- places(state = "HI", cb = TRUE, year = 2022) |>
   st_transform(4326) |>
   st_filter(oahu_boundary, .predicate = st_intersects)
 
-place_zscores <- exact_extract(
-  z_score_meaningful,
-  oahu_places,
-  fun = "mean",
-  append_cols = "NAME"
-) |>
-  rename(z_score = mean)
+
+```
+
+```{r}
+place_z <- map_dfr(names(z_score_meaningful), function(d) {
+  tibble(
+    NAME    = oahu_places$NAME,
+    date    = as.Date(d),
+    z_score = exact_extract(z_score_meaningful[[d]], oahu_places,
+                            fun = "mean", progress = FALSE)
+  )
+})
 
 oahu_places_z <- oahu_places |>
-  left_join(place_zscores, by = "NAME")
+  select(NAME) |>
+  left_join(place_z, by = "NAME")
 
 ggplot(oahu_places_z) +
-  geom_sf(aes(fill = z_score), color = "white", linewidth = 0.2) +
+  geom_sf(aes(fill = z_score), color = "white", linewidth = 0.1) +
+  facet_wrap(~date, ncol = 4) +
   scale_fill_gradient2(
     low = "darkred", mid = "white", high = "darkgreen", midpoint = 0,
     na.value = "grey85", name = "Mean\nz-score"
   ) +
-  labs(title = "Oahu: Mean Radiance Z-Score by Community (CDP)",
-       subtitle = paste0("Storm night (", storm_date_label, ") vs. baseline")) +
-  theme_minimal()
+  labs(title = "Oʻahu: Mean Radiance Z-Score by Community (CDP)",
+       subtitle = "Aug 14-17 storm, Aug 18-21 recovery") +
+  theme_minimal() +
+  theme(axis.text = element_blank())
 ```
 
 ```{r place-zscore-table}
-place_zscores |>
-  arrange(z_score) |>
-  select(NAME, z_score)
+place_z |>
+  filter(date <= as.Date("2026-08-17")) |>
+  group_by(NAME) |>
+  summarize(worst_z = min(z_score, na.rm = TRUE), .groups = "drop") |>
+  filter(is.finite(worst_z)) |>
+  arrange(worst_z)
 ```
 
