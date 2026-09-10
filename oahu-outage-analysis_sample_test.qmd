@@ -245,6 +245,9 @@ ntl_trend <- bind_rows(
   extract_from_local(r_recovery, roi_hawaii) |> mutate(period = "Recovery")
 ) #Rec
 
+ntl_trend <- ntl_trend |>
+  mutate(period = factor(period, levels = c("Baseline", "Storm", "Recovery")))
+
 statewide_trend <- ntl_trend |>
   group_by(date, period) |>
   summarize(ntl_mean = mean(ntl_mean, na.rm = TRUE), .groups = "drop")
@@ -253,7 +256,7 @@ ggplot(statewide_trend, aes(x = date, y = ntl_mean, fill = period)) +
   geom_col() +
   scale_fill_manual(values = c("Baseline" = "grey70", "Storm" = "firebrick", "Recovery" = "lightgreen")) + #Rec
   labs(title = "Statewide Mean Nighttime Radiance by Day",
-       subtitle = paste0("Baseline (Aug 3-13) vs. Storm Lala (Aug 14-16) vs. Recovery (Aug 17-21), 2026 (", storm_date_label, ")"),
+       subtitle = "Baseline (Aug 7-13) vs. Storm (Aug 14-17) vs. Recovery (Aug 18-21), 2026",
        x = NULL, y = "Mean radiance", fill = NULL) +
   theme_minimal()
 ```
@@ -261,21 +264,14 @@ ggplot(statewide_trend, aes(x = date, y = ntl_mean, fill = period)) +
 Breaking this out by county shows Hawaii County's baseline sitting well above what a typical pre-storm night should look like — a real, independent light source (lava fountain glow) unrelated to the electrical grid.
 
 ```{r county-facet}
-kilauea_dates <- ntl_trend |>
-  filter(county == "Hawaii", period == "Baseline", date >= as.Date(c("2026-08-13", "2026-08-14"))) |> # change date to 2026-08-03 
-  pull(date)
 
 ggplot(ntl_trend, aes(x = date, y = ntl_mean, fill = period)) +
   geom_col() +
-  geom_point(
-    data = ntl_trend |> filter(county == "Hawaii", date %in% kilauea_dates),
-    aes(x = date, y = ntl_mean), shape = 8, size = 2, color = "black",
-    inherit.aes = FALSE
-  ) +
   facet_wrap(~county, scales = "free_y") +
-  scale_fill_manual(values = c("Baseline" = "grey70", "Storm" = "firebrick", "Recovery" = "lightgreen")) + #Rec
+  scale_fill_manual(values = c("Baseline" = "grey70", "Storm" = "firebrick", "Recovery" = "lightgreen")) +
+  scale_x_date(date_breaks = "4 days", date_labels = "%b %d") +
   labs(title = "Mean Nighttime Radiance by Day, by County",
-       subtitle = "Asterisks on Hawaii County mark nights during Kilauea's active summit eruption (Episode 4, began Jan 15, 2025) — lava glow, not grid activity",
+       subtitle = "Hawaiʻi County took the direct hit; Honolulu County is Oʻahu",
        x = NULL, y = "Mean radiance", fill = NULL) +
   theme_minimal()
 
@@ -459,7 +455,6 @@ names(pct_change_meaningful) <- names(abs_change_meaningful)
 Absolute and percent change both treat every pixel's baseline as a fixed, single number. In reality some pixels are naturally stable night to night, and others swing quite a bit even without anything unusual happening. A z-score accounts for that by scaling the change against each pixel's own typical variability.
 
 ```{r variability}
-median(sd_values$sd)
 r_baseline_oahu <- crop(r_baseline, oahu_boundary) |> mask(oahu_boundary)
 baseline_sd_oahu <- app(r_baseline_oahu, sd, na.rm = TRUE)
 
