@@ -28,11 +28,37 @@ library(vembedr)
 options(tigris_use_cache = TRUE)
 ```
 
-```{r}
-#embed_url("https://www.youtube.com/watch?v=QiCxG9V0-fw")
-```
+# Summary
 
-NASA Earthdata credentials are needed to pull Black Marble data. Store these as environment variables rather than typing them directly into a script.
+Hurricane Lala passed south of the Hawaiian Islands in mid-August 2026, striking Hawaiʻi Island as a Category 1 storm on August 15 before tracking west toward Oʻahu. Hawaiian Electric reported roughly 9,500 Oʻahu customers without power late on August 15; by 7 a.m. on August 16 that figure had risen to approximately 110,700, close to a quarter of the island's customer base.
+
+**The question:** if a quarter of Oʻahu's electrical customers lose power overnight, can a satellite detect it from orbit?
+
+**The answer:** yes, but faintly. Across the eight storm and recovery nights, 69% of Oʻahu's lit pixels were darker than baseline, compared with a measured baseline rate of 57% across seven pre-storm nights. The shift is consistent — every event night exceeded the baseline average — but modest. The most persuasive evidence is geographic: ranking Oʻahu communities by z-score independently surfaced the same three regions Hawaiian Electric named in its outage reports.
+
+# Why nighttime lights can detect an outage
+
+The Visible Infrared Imaging Radiometer Suite (VIIRS) aboard Suomi-NPP passes over Hawaiʻi at roughly 1–2 a.m. local time. NASA's Black Marble VNP46A2 product corrects that raw signal for moonlight, atmospheric effects, and viewing angle, producing a daily estimate of how much light each 500-metre pixel emits toward space.
+
+Electric light is the dominant source of that signal over developed land. If the grid fails, the light goes with it — and because the correction removes the largest natural confounds, a night-to-night drop becomes interpretable as a change on the ground rather than a change in viewing conditions.
+
+## Study design
+
+Three periods structure the analysis:
+
+| Period | Dates | Nights | Treatment |
+|-----------------|-----------------|-----------------|-----------------------|
+| Baseline | Aug 3 – Aug 13 | 11 requested, 7 returned | Averaged into one reference image |
+| Storm | Aug 14 – Aug 17 | 4 | Compared individually |
+| Recovery | Aug 18 – Aug 21 | 4 | Compared individually |
+
+The baseline collapses to a per-pixel mean and standard deviation. Every storm and recovery night is compared against that same fixed reference, so all eight event nights are directly comparable to one another.
+
+August 17 is placed in the storm window rather than recovery. VIIRS captures around 1 a.m., and the Oʻahu outage peaked overnight on August 16 into August 17, so that night is part of the event rather than the aftermath.
+
+# Data
+
+## Credentials
 
 ```{r bearer-token}
 
@@ -40,87 +66,7 @@ bearer <- get_nasa_token(username = "reimn17",
                          password = "C534dpcry/6b/#/")
 ```
 
-## Finding the right night to look at
-
-VIIRS, the satellite behind Black Marble, passes over Hawaii at roughly 1-2 AM local time. Rather than picking whichever night had the worst outages overall, we look specifically at what EAGLE-I reported during that 1-2 AM window, since that's the moment a Black Marble image for a given date would actually be capturing.
-
-```{r eagle-i-load}
-#eagle_i_hawaii <- read_feather(here("data/hawaii_outages_2025.feather")) |>
-#  filter(county != "Kalawao")
-
-#message("run_start_time timezone: ", attr(eagle_i_hawaii$run_start_time, "tzone"))
-```
-
-`run_start_time` is stored in UTC. Hawaii is UTC-10 with no daylight saving, so the local overpass window has to be found in HST, not by filtering UTC hours directly.
-
-```{r eagle-i-hst}
-#eagle_i_hawaii <- eagle_i_hawaii |>
-#  mutate(run_start_time_hst = with_tz(run_start_time, tzone = "Pacific/Honolulu"))
-
-#overpass_window <- eagle_i_hawaii |>
-#  mutate(
-#    hour = hour(run_start_time_hst),
-#    date = as.Date(run_start_time_hst)
-#  ) |>
-#  filter(hour %in% c(1, 2))
-```
-
-Each date is scored on how large and how widespread the outage was, specifically within that overpass window.
-
-```{r overpass-summary}
-#overpass_summary <- overpass_window |>
-#  group_by(date) |>
-#  summarize(
-#    mean_customers_out = mean(customers_out, na.rm = TRUE),
-#    max_customers_out = max(customers_out, na.rm = TRUE),
-#    n_counties_affected = n_distinct(county[customers_out > 0]),
-#    .groups = "drop"
-#  ) |>
-#  mutate(
-#    score = scales::rescale(max_customers_out) +
-#      scales::rescale(n_counties_affected)
-#  ) |>
-#  arrange(desc(score))
-
-#print(overpass_summary)
-```
-
-```{r storm-date}
-#storm_date_label <- overpass_summary$date[1]
-#message("Selected storm date (by overpass-window severity): ", storm_date_label)
-
-#overpass_window |>
-#  filter(date == storm_date_label) |>
-#  summarize(
-#    mean_customers_out_at_overpass = mean(customers_out, na.rm = TRUE),
-#    max_customers_out_at_overpass = max(customers_out, na.rm = TRUE),
-#    n_counties_affected_at_overpass = n_distinct(county[customers_out > 0])
-#  )
-```
-
-The chart below shows the full outage timeline around the selected date, with the actual 1-2 AM overpass window shaded rather than marked with a single instantaneous line, since the exact overpass moment within that window isn't known precisely.
-
-```{r overpass-timeline}
-#overpass_start <- as.POSIXct(paste(storm_date_label, "01:00:00"),
-#                              tz = "Pacific/Honolulu")
-#overpass_end <- as.POSIXct(paste(storm_date_label, "02:59:59"),
-#                            tz = "Pacific/Honolulu")
-
-#eagle_i_hawaii |>
-#  filter(as.Date(run_start_time_hst) %in% (storm_date_label + c(-1, 0))) |>
-#  ggplot(aes(x = run_start_time_hst, y = customers_out, color = county)) +
-#  geom_rect(aes(xmin = overpass_start, xmax = overpass_end, ymin = -Inf, ymax = Inf),
-#            inherit.aes = FALSE, fill = "grey85", alpha = 0.5) +
-#  geom_line(linewidth = 0.6) +
-#  labs(title = paste0("Outage Timeline — VIIRS Overpass Window Shaded (", #storm_date_label, ")"),
-#       subtitle = "Shaded band shows the ~1-2 AM HST window Black Marble would have #actually captured",
-#       x = NULL, y = "Customers without power (HST)", color = "County") +
-#  theme_minimal()
-```
-
 ## Setting the baseline and storm dates
-
-The baseline is the 10 days immediately preceding the storm. This window happens to overlap Kilauea's summit eruption, which entered its fourth eruptive episode on January 15, 2025 and was still actively fountaining as of the January 18 HVO report. That's kept in the baseline intentionally rather than avoided, since its effect on Hawaii County shows up clearly in the county-level chart further down.
 
 ```{r set-dates}
 # from 2026-08-03 to 2026-08-13 for baseline - average
@@ -146,9 +92,9 @@ period_colors <- c(Baseline = "grey70", Storm = "firebrick", Recovery = "steelbl
 storm_window_label <- "Hurricane Lala, Aug 14-17, 2026"
 ```
 
-## Hawaii boundary
+## Study area boundary
 
-`tigris` defaults to NAD83; Black Marble tiles expect WGS84, so a reprojection is required. The boundary is also cropped to the main islands, since Honolulu County's official boundary technically extends across the Northwestern Hawaiian Islands.
+`tigris` returns county boundaries in NAD83; Black Marble tiles are in WGS84, so a reprojection is required. The bounding box drops the Northwestern Hawaiian Islands, which Honolulu County technically includes but which contain no relevant infrastructure
 
 ```{r boundary}
 roi_hawaii <- counties(state = "HI", cb = TRUE, year = 2022) |>
@@ -160,7 +106,7 @@ roi_hawaii <- counties(state = "HI", cb = TRUE, year = 2022) |>
 
 ## Pulling Black Marble rasters
 
-Each date is pulled individually and wrapped in `tryCatch()`, so one missing or failed date doesn't stop the whole batch.
+Each date is requested individually inside `tryCatch()`, so a missing or failed date does not halt the batch. Layer names are explicitly overwritten with ISO dates, because `bm_raster()` returns names in a `t2026_08_14` format that later date matching cannot parse.
 
 ```{r pull-rasters}
 pull_one_date <- function(d) {
@@ -200,9 +146,11 @@ r_storm <- r_all[[storm_ok]]
 r_recovery <- r_all[[recovery_ok]]
 ```
 
-## Masking and completeness
+#### **August 3 through 6 returned no imagery.** The baseline is therefore built from seven nights (August 7–13) rather than the eleven originally planned. All event nights were retrieved successfully.
 
-Everything from here on stays on the raw radiance scale. Log transforms are applied only when needed for a plot, and always fresh, never on top of an already-logged raster.
+## Data completeness
+
+Cloud cover is the primary threat to this analysis. A storm night with few valid pixels could appear dark simply because the observation is missing, not because the lights went out. This check is the honesty test for everything that follows.
 
 ```{r mask-completeness}
 # add recovery ver.
@@ -222,9 +170,11 @@ completeness_check <- tibble(
 print(completeness_check)
 ```
 
-## County-level luminance
+## Baseline versus event radiance, at four granularities
 
-County-level daily means are computed directly from the rasters already pulled above, rather than requesting the same tiles again through a separate summary function.
+## Statewide and by county
+
+County-level daily means are computed from the rasters already retrieved, rather than requesting the same tiles again through a separate summary function.
 
 ```{r county-extract}
 extract_from_local <- function(raster_stack, roi_sf) {
@@ -261,7 +211,7 @@ ggplot(statewide_trend, aes(x = date, y = ntl_mean, fill = period)) +
   theme_minimal()
 ```
 
-Breaking this out by county shows Hawaii County's baseline sitting well above what a typical pre-storm night should look like — a real, independent light source (lava fountain glow) unrelated to the electrical grid.
+Broken out by county, Hawaiʻi County shows the deepest storm-period decline. That is consistent with the storm track: Hawaiʻi Island took the Category 1 landfall, while Oʻahu caught the weakening back end a day later. The contrast is useful context for why the Oʻahu signal is comparatively subtle.
 
 ```{r county-facet}
 
@@ -279,14 +229,9 @@ ggplot(ntl_trend, aes(x = date, y = ntl_mean, fill = period)) +
 
 ```
 
-\
+## Scoping to Oʻahu
 
-```         
-```
-
-## Scoping down to Oahu
-
-EAGLE-I's overpass-window numbers show Honolulu County with the largest customer impact at the actual satellite capture time. From here on, the pixel-level work is scoped to Oahu — both because that's where the strongest reported signal is, and because it avoids the Kilauea confound in Hawaii County entirely rather than needing to work around it.
+Hawaiian Electric reported the largest county-level customer impact on Oʻahu. From this point forward the pixel-level work is scoped to Honolulu County, which is the island of Oʻahu.
 
 ```{r scope-oahu}
 oahu_boundary <- roi_hawaii |> filter(county == "Honolulu")
@@ -306,9 +251,9 @@ recovery_stack <- r_recovery |> crop(oahu_boundary) |> mask(oahu_boundary)
 event_stack <- c(storm_stack, recovery_stack)
 ```
 
-## Pixel-level comparison
+## Pixel level: storm night versus recovery night
 
-Every pixel has both a baseline value and a storm-night value. Plotting them against each other directly, pixel by pixel, is a more direct comparison than looking at either distribution separately.
+Every pixel has both a baseline value and a value on each event night. Plotting them against one another directly is a more informative comparison than examining either distribution alone. Points below the dashed identity line are darker than normal.
 
 ```{r paired-scatter}
 peak_storm <- "2026-08-15"   # darkest night — check your completeness table
@@ -346,6 +291,12 @@ paired_values |>
   )
 ```
 
+# Establishing what "normal" looks like
+
+A count of pixels that darkened is only interpretable against a reference. The intuitive reference is 50% — a coin flip — but that turns out to be wrong here.
+
+Because radiance is right-skewed, the baseline *mean* sits above the baseline *median*. An entirely ordinary night therefore falls below that mean more often than half the time, purely as an artifact of the comparison. The correct reference has to be measured, not assumed.
+
 ```{r}
 baseline_vec <- values(baseline_mean)[, 1]
 
@@ -382,20 +333,9 @@ ggplot(darkened_by_night, aes(x = as.Date(date), y = pct_darkened, fill = period
   theme_minimal()
 ```
 
-```{r}
-ggplot(darkened_by_night, aes(x = as.Date(date), y = pct_darkened, fill = period)) +
-  geom_col() +
-  geom_hline(yintercept = 50, linetype = "dashed", color = "grey30") +
-  scale_fill_manual(values = c("Storm" = "firebrick", "Recovery" = "steelblue")) +
-  scale_x_date(date_breaks = "1 day", date_labels = "%b %d") +
-  labs(title = "Share of Oʻahu pixels darker than baseline, by night",
-       subtitle = "50% (dashed) is what pure night-to-night noise produces",
-       x = NULL, y = "% of pixels darkened", fill = NULL) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
+The eight event nights averaged **69%**, and every one of them exceeded the baseline average of 57%. The shift is real and consistent, but at roughly eleven percentage points it is modest — considerably smaller than a quarter of the grid going dark would suggest.
 
-Splitting pixels by how bright they normally are shows the darkening rate climbing steadily with brightness — close to a coin flip among the dimmest pixels, and close to universal among the brightest.
+## Darkening by baseline brightness
 
 ```{r brightness-bins}
 paired_values |>
@@ -404,6 +344,10 @@ paired_values |>
   group_by(brightness_bin) |>
   summarize(n = n(), pct_darkened = round(mean(storm < baseline) * 100, 1))
 ```
+
+## Where Oʻahu's light actually is
+
+Before examining change, it is worth establishing where the island has light to lose. Radiance is concentrated almost entirely along the southern urban corridor from Kapolei through Pearl City to East Honolulu. The Koʻolau and Waiʻanae ranges emit essentially nothing.
 
 ```{r brightness-bin-raster}
 brightness_bin_raster <- classify(
@@ -434,7 +378,7 @@ ggplot() +
   theme_minimal()
 ```
 
-Below a baseline of 5, the darkening rate is close enough to 50% that it's best treated as noise rather than signal. That threshold is used from here on to exclude pixels with no real light to lose in the first place.
+Pixels with a baseline radiance below 5 have essentially no light to lose, and including them would dilute every subsequent statistic with noise. That threshold is applied from here onward, leaving roughly 2,300 lit pixels.
 
 ```{r meaningful-mask}
 meaningful_mask <- baseline_mean >= 5
@@ -450,9 +394,9 @@ pct_change_meaningful <- abs_change_meaningful / baseline_meaningful * 100
 names(pct_change_meaningful) <- names(abs_change_meaningful)
 ```
 
-## Accounting for how much each pixel normally varies
+## How much each pixel normally varies
 
-Absolute and percent change both treat every pixel's baseline as a fixed, single number. In reality some pixels are naturally stable night to night, and others swing quite a bit even without anything unusual happening. A z-score accounts for that by scaling the change against each pixel's own typical variability.
+Absolute and percent change both treat a pixel's baseline as a single fixed number. In reality some pixels are stable night to night while others fluctuate considerably with nothing unusual happening. A z-score accounts for this by scaling each change against that pixel's own typical variability.
 
 ```{r variability}
 r_baseline_oahu <- crop(r_baseline, oahu_boundary) |> mask(oahu_boundary)
@@ -503,9 +447,9 @@ names(z_score_meaningful) <- names(event_stack)
 print(minmax(z_score_meaningful))
 ```
 
-## Comparing the metrics
+## Choosing a change metric
 
-Absolute change, percent change, and z-score each answer a slightly different question, and each has situations where it's the wrong tool to reach for.
+Absolute change, percent change, and z-score answer different questions. The choice is not cosmetic: it determines which parts of the island a map draws the eye toward.
 
 ```{r metrics-table}
 #| echo: false
@@ -597,7 +541,17 @@ metrics_table |>
   )
 ```
 
-## Mapping the change
+## Which metric this analysis relies on, and why
+
+**Z-score drives the community rankings and the primary maps.** With a median baseline standard deviation of 0.57 radiance units, Oʻahu's pixels are volatile enough that raw differences are hard to interpret. The z-score is the only metric that scales each change against the variability of the pixel it came from.
+
+**Percent change is reported for comparability across neighborhoods.** Oʻahu's communities differ enormously in baseline brightness, and percent change places a quiet residential area and a dense urban core on the same footing.
+
+**Absolute change is presented first because its units are directly interpretable**, and because the contrast between the absolute and z-score maps demonstrates the weakness of relying on magnitude alone.
+
+# Maps: change in radiance
+
+## Absolute change, night by night
 
 ```{r map-abs-change}
 #| fig-height: 8
@@ -614,6 +568,14 @@ ggplot() +
   theme_minimal() +
   theme(axis.text = element_blank())
 ```
+
+August 15 shows the strongest darkening, concentrated along the Honolulu urban corridor. Most of the island appears near-white, which illustrates the weakness described above: absolute change reveals only where there was a large amount of light to lose in the first place.
+
+**August 16 is nearly blank, despite that being the night outages peaked.** This is the clearest visible symptom of the gap-filling problem flagged earlier — on the cloudiest night of the series, the product appears to be supplying modelled values rather than observations.
+
+## Interactive maps: August 15
+
+Comparing the same night under two metrics makes the difference concrete. Absolute change places nearly all of its color in one bright area near Waikīkī. The z-score map spreads the signal across the entire developed corridor, because it divides by each pixel's own variability rather than rewarding pixels for having been bright to begin with.
 
 ```{r map-abs-change-tmap}
 tmap_mode("view")
@@ -648,6 +610,10 @@ oahu_places <- places(state = "HI", cb = TRUE, year = 2022) |>
 
 
 ```
+
+# Z-score by community
+
+Aggregating z-scores to named communities (Census-designated places) allows specific neighborhoods to be compared directly, rather than selecting individual points by hand. This is where the analysis produces its most convincing result.
 
 ```{r}
 place_z <- map_dfr(names(z_score_meaningful), function(d) {
@@ -684,3 +650,13 @@ place_z |>
   filter(is.finite(worst_z)) |>
   arrange(worst_z)
 ```
+
+::: callout-tip
+## Independent agreement with the utility's own report
+
+The hardest-hit communities by z-score are Ahuimanu (−5.28), Waialua (−3.15), Ewa Villages (−2.63), Maili (−2.28), East Honolulu (−2.19), West Loch Estate (−1.95), and Kahuku (−1.84).
+
+Hawaiian Electric independently described the outage as concentrated in **Leeward Oʻahu, Honolulu, and Windward Oʻahu**. Ewa Villages, Maili, and West Loch Estate are leeward. Ahuimanu and Kahuku are windward. East Honolulu is Honolulu.
+
+The satellite was given no information about where to look. It surfaced the same three regions the utility reported. This geographic agreement is the strongest evidence in the analysis that the measured darkening reflects power loss rather than noise or cloud.
+:::
