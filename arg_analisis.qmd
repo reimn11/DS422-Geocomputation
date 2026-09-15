@@ -16,11 +16,58 @@ When you click the **Render** button a document will be generated that includes 
 library(tidyverse)
 library(sf)
 library(here)
+library(mapview)
+library(ggplot2)
+```
+
+# Read Data
+
+```{r}
+ag_2015 <- st_read(here("data/Agricultural_Land_Use_2015_Baseline.geojson"))
 ```
 
 ```{r}
-#| echo: false
-2 * 2
+ag_2020 <- st_read(here("data/Agricultural_Land_Use_2020_Update.geojson"))
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+# Make a map
+
+```{r}
+mapview(ag_2015, zcol = "cropcatego")
+```
+
+```{r}
+unique(ag_2015$cropcatego)
+```
+
+R color brewer can enhance this
+
+Distibution Of Acreage
+
+```{r}
+ggplot(ag_2015, aes(x = acreage)) +
+  geom_histogram() +
+  theme_bw() +
+  facet_wrap(~island, scales = "free_y")
+```
+
+Questions:
+
+Did we add/lose ag land acreage between 2015 and 2020?
+
+```{r}
+sum_2015_acreage <- sum(ag_2015$acreage)
+sum_2020_acreage<- sum(ag_2020$acreage)
+
+sum_2020_acreage - sum_2015_acreage
+```
+
+What has that land been converted to?
+
+one map of lost ag land between 2015 and 2020
+
+ag land ownership
+
+NDVI in list ag land
+
+soli type
