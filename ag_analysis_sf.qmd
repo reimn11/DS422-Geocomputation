@@ -1,0 +1,336 @@
+---
+title: "Agriculture Analysis"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(sf)
+library(here)
+library(mapview)
+library(RColorBrewer)
+```
+
+### Read in Data
+
+[**`st_read()`**](https://r-spatial.github.io/sf/reference/st_read.html) reads a spatial file (here, GeoJSON) into an `sf` object — a data frame with a special geometry list-column attached.
+
+```{r}
+ag_2015 <- st_read(here("data/Agricultural_Land_Use_2015_Baseline.geojson"))
+ag_2020 <- st_read(here("data/Agricultural_Land_Use_2020_Update.geojson"))
+```
+
+### Check 1: Basic structural consistency between the two datasets
+
+Before doing *any* analysis, verify the two files are actually comparable — same CRS, same geometry type, sane feature counts, consistent naming.
+
+[**`st_crs()`**](https://r-spatial.github.io/sf/reference/st_crs.html) retrieves (or sets) an object's Coordinate Reference System. Comparing `st_crs(ag_2015) == st_crs(ag_2020)` catches a mismatch before it silently corrupts every distance or area calculation downstream — this is a pure inspection call, it doesn't change the data.
+
+[**`st_geometry_type()`**](https://r-spatial.github.io/sf/reference/st_geometry_type.html) returns the geometry type (POLYGON, MULTIPOLYGON, etc.) per feature, or with `by_geometry = FALSE`, one summary value. Mixed types between years (e.g., singlepart vs. multipart) can break `rbind()` or comparisons that assume uniform geometry.
+
+```{r}
+# CRS must match, or every downstream operation is silently wrong
+st_crs(ag_2015) == st_crs(ag_2020)
+
+# Geometry type consistency
+st_geometry_type(ag_2015, by_geometry = FALSE)
+st_geometry_type(ag_2020, by_geometry = FALSE)
+
+# Feature counts and column names — note cropcatego vs crops_2020 already differ
+nrow(ag_2015); nrow(ag_2020)
+names(ag_2015); names(ag_2020)
+
+# Island naming must match exactly for any group_by(island) later —
+# a stray "Big Island " vs "Big Island" or "Molokai" vs "Moloka'i" breaks joins silently
+sort(unique(ag_2015$island))
+sort(unique(ag_2020$island))
+```
+
+### Check 2: Geometry validity — how much are we actually fixing?
+
+`st_make_valid()` is often called reflexively without checking what it's doing. Quantify it instead.
+
+[**`st_is_valid()`**](https://r-spatial.github.io/sf/reference/valid.html) checks whether each geometry follows OGC simple-features validity rules (no self-intersections, properly closed rings, etc.), returning `TRUE`/`FALSE`/`NA` per feature. Counting invalid features *before* fixing anything turns an invisible cleanup step into a quantified, reportable fact.
+
+[**`st_make_valid()`**](https://r-spatial.github.io/sf/reference/valid.html) — shares its documentation page with `st_is_valid()` — repairs invalid geometries (self-intersections, bowties, etc.) using GEOS or s2 depending on the CRS, without altering geometries that were already valid.
+
+[**`st_area()`**](https://r-spatial.github.io/sf/reference/geos_measures.html) computes the area of each geometry as a `units` object, respecting whatever length unit the CRS uses. Measuring total area *before and after* `st_make_valid()` is the critical pairing here: a "repair" that also meaningfully shrinks or grows total area is a signal something more serious than topology noise is happening.
+
+```{r}
+invalid_2015 <- sum(!st_is_valid(ag_2015))
+invalid_2020 <- sum(!st_is_valid(ag_2020))
+
+invalid_2015; invalid_2020
+
+# Total acreage before fixing, so we can confirm fixing didn't distort the data
+area_before_2015 <- sum(st_area(ag_2015))
+area_before_2020 <- sum(st_area(ag_2020))
+
+ag_2015 <- st_make_valid(ag_2015)
+ag_2020 <- st_make_valid(ag_2020)
+
+area_after_2015 <- sum(st_area(ag_2015))
+area_after_2020 <- sum(st_area(ag_2020))
+
+# These differences should be TINY (topology fixes, not real area change).
+# A large difference here means something is structurally wrong with the source data.
+as.numeric(area_after_2015 - area_before_2015)
+as.numeric(area_after_2020 - area_before_2020)
+```
+
+### Make a map
+
+```{r}
+mapview(ag_2015, zcol = "cropcatego",
+        col.regions = colorRampPalette(brewer.pal(12, "Paired"))(15),
+        layer.name = "Crop Category")
+```
+
+### Questions: Did we add/lose ag land designation acreage between 2015 and 2020?
+
+```{r}
+sum_2015_acreage <- sum(ag_2015$acreage)
+sum_2020_acreage <- sum(ag_2020$acreage)
+
+net_change_attribute <- sum_2020_acreage - sum_2015_acreage
+net_change_attribute
+```
+
+### Check 3: Does the `acreage` attribute agree with the geometry itself?
+
+This is a crucial, often-skipped check: the `acreage` column is a *stored* value, not something computed live from the polygon. If it was calculated in a different CRS, at a different time, or has data-entry errors, attribute-based stats above could be wrong even though the geometry itself is fine.
+
+[**`st_transform()`**](https://r-spatial.github.io/sf/reference/st_transform.html) reprojects geometry from one CRS to another — here, WGS84 lon/lat to UTM Zone 4N (EPSG:32604). This is necessary before any area, distance, or overlay operation, since GEOS-based planar operations are only numerically reliable in a projected CRS; doing them directly on geographic coordinates distorts results, especially across an archipelago spanning multiple degrees of latitude.
+
+```{r}
+ag_2015_proj <- st_transform(ag_2015, 32604)
+ag_2020_proj <- st_transform(ag_2020, 32604)
+
+ag_2015_proj <- ag_2015_proj %>%
+  mutate(computed_acres = as.numeric(st_area(.)) / 4046.86,
+         acre_diff = computed_acres - acreage,
+         pct_diff = 100 * acre_diff / acreage)
+
+# Ideally these are all close to 0. Flag anything with a large mismatch.
+summary(ag_2015_proj$pct_diff)
+
+ggplot(ag_2015_proj, aes(x = pct_diff)) +
+  geom_histogram(bins = 50) +
+  labs(title = "2015: % difference between stored acreage and geometry-computed acreage",
+       x = "% difference", y = "Count of parcels")
+```
+
+[**`st_drop_geometry()`**](https://r-spatial.github.io/sf/reference/st_geometry.html) strips the geometry column, returning a plain data frame/tibble. Use it whenever doing ordinary `dplyr` summarizing (grouping, counting, `arrange()`) that doesn't need geometry — carrying geometry through operations that don't use it is unnecessary overhead, and a good habit to build early.
+
+```{r}
+# Which specific parcels disagree most? Worth spot-checking these on the map.
+ag_2015_proj %>%
+  st_drop_geometry() %>%
+  arrange(desc(abs(pct_diff))) %>%
+  select(objectid, cropcatego, acreage, computed_acres, pct_diff) %>%
+  head(10)
+```
+
+If most parcels cluster near 0% and a handful are wildly off, that's a signal of digitizing errors or unit mix-ups in specific records — not a systemic problem, but worth flagging or excluding before trusting totals built from `acreage`.
+
+### Which land was converted? (Spatial footprint method)
+
+[**`st_union()`**](https://r-spatial.github.io/sf/reference/geos_combine.html) dissolves multiple geometries into a single combined footprint. Here it collapses thousands of individual parcels into one "footprint of all ag land that year" polygon per year.
+
+```{r}
+union_2015 <- st_union(ag_2015_proj)
+union_2020 <- st_union(ag_2020_proj)
+```
+
+```{r}
+
+# Original: thousands of separate rows, each with attributes
+nrow(ag_2015_proj)
+
+# After union: how many disconnected pieces are inside the one MULTIPOLYGON?
+n_parts <- length(st_cast(union_2015, "POLYGON"))
+n_parts
+
+# Did any parcels actually get fused together?
+nrow(ag_2015_proj) - n_parts
+```
+
+### Check 4: Did dissolving change total area?
+
+`st_union()` merges overlapping polygons — if any parcels within the same year overlap each other, the dissolved total will be *smaller* than the sum of individual parcel areas. That's useful information about the source data (overlapping/duplicate digitizing), not just a technical side effect.
+
+```{r}
+sum_individual_2015 <- sum(as.numeric(st_area(ag_2015_proj)))
+sum_dissolved_2015  <- as.numeric(st_area(union_2015))
+
+sum_individual_2020 <- sum(as.numeric(st_area(ag_2020_proj)))
+sum_dissolved_2020  <- as.numeric(st_area(union_2020))
+
+# If these differ noticeably, some parcels overlap each other within the same year
+sum_individual_2015 - sum_dissolved_2015
+sum_individual_2020 - sum_dissolved_2020
+```
+
+```{r}
+# Which 2020 parcels overlap each other?
+overlaps_2020 <- st_intersects(ag_2020_proj)
+has_overlap_2020 <- lengths(overlaps_2020) > 1
+sum(has_overlap_2020)
+
+# Pull out the actual overlapping parcels to inspect
+overlapping_parcels <- ag_2020_proj[has_overlap_2020, ]
+
+overlapping_parcels %>%
+  st_drop_geometry() %>%
+  count(crops_2020, sort = TRUE)
+
+mapview(overlapping_parcels, zcol = "crops_2020",
+        layer.name = "2020 parcels with overlaps")
+```
+
+[**`st_difference()`**](https://r-spatial.github.io/sf/reference/geos_binary_ops.html) returns the parts of geometry `x` that do *not* overlap with geometry `y`. `st_difference(union_2020, union_2015)` = land present in 2020 but not 2015 ("new"); reversing the arguments gives the reverse ("lost"). This function and `st_intersection()` share one documentation page, since they're two sides of the same set operation — and argument order is the easiest place to introduce a silent bug (swap them, and red/green flip meaning), so it's worth verifying direction explicitly rather than trusting it by eye.
+
+[**`st_sf()`**](https://r-spatial.github.io/sf/reference/sf.html) constructs an `sf` object from attribute columns plus a geometry column. Needed here because `st_difference()` alone returns a bare geometry with no attributes attached.
+
+[**`st_sfc()`**](https://r-spatial.github.io/sf/reference/sfc.html) creates a geometry list-column and lets you (re)assign a CRS via `crs =`. `st_difference()` on unioned geometries returns a single geometry object without CRS metadata — `st_sfc()` reattaches it.
+
+[**`st_cast()`**](https://r-spatial.github.io/sf/reference/st_cast.html) converts geometries from one type to another — e.g., normalizing a mixed `GEOMETRYCOLLECTION` (which `st_difference()` can produce in edge cases, from slivers or lines) into clean `MULTIPOLYGON` for plotting.
+
+```{r}
+# New ag land: in 2020 but NOT in 2015
+new_2020 <- st_difference(union_2020, union_2015)
+
+# Lost ag land: in 2015 but NOT in 2020
+lost_2015 <- st_difference(union_2015, union_2020)
+
+# --- Turn into sf objects with a status column for mapping ---
+new_sf  <- st_sf(status = "New (2020 only)", geometry = st_sfc(new_2020, crs = 32604))
+lost_sf <- st_sf(status = "Lost (2015 only)", geometry = st_sfc(lost_2015, crs = 32604))
+
+changes <- rbind(
+  st_cast(new_sf, "MULTIPOLYGON"),
+  st_cast(lost_sf, "MULTIPOLYGON")
+) %>%
+  st_transform(4326)
+```
+
+### Check 5: Sliver inspection — is "change" real or just boundary noise?
+
+Two independently digitized surveys almost never line up perfectly at parcel edges. Before trusting `changes`, look at the size distribution of individual change-polygons — a sea of tiny slivers means most of your "new/lost" area is boundary noise, not real land-use change.
+
+`st_cast(..., "POLYGON")` is used again here for a different reason than above: it *splits* multipart geometries into individual single-polygon rows, so each disconnected sliver or parcel becomes its own row that can be measured and histogrammed. A dissolved multipolygon would hide the sliver problem if left uncast.
+
+```{r}
+changes_pieces <- changes %>%
+  st_transform(32604) %>%
+  st_cast("POLYGON") %>%
+  mutate(piece_acres = as.numeric(st_area(.)) / 4046.86)
+
+nrow(changes_pieces)
+
+ggplot(changes_pieces, aes(x = piece_acres)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10() +
+  facet_wrap(~status) +
+  labs(title = "Distribution of individual change-polygon sizes (log scale)",
+       x = "Acres (log scale)", y = "Count")
+
+# How much total area is contributed by tiny slivers vs. real parcels?
+changes_pieces %>%
+  st_drop_geometry() %>%
+  mutate(size_class = if_else(piece_acres < 1, "Sliver (<1 acre)", "Substantial (>=1 acre)")) %>%
+  group_by(status, size_class) %>%
+  summarize(n = n(), total_acres = sum(piece_acres), .groups = "drop")
+```
+
+If slivers under 1 acre make up hundreds of polygons but a tiny fraction of total acreage, filtering them out is safe and mostly cosmetic. If they make up a *large share* of total acreage, that's a red flag that the change map is dominated by boundary mismatch rather than real conversion — worth stating explicitly rather than quietly filtering it away.
+
+```{r}
+changes_clean <- changes_pieces %>%
+  filter(piece_acres >= 1) %>%
+  st_transform(4326)
+
+# Confirm how much area (and how many features) the filter removed
+removed <- nrow(changes_pieces) - nrow(changes_clean)
+removed_acres <- sum(changes_pieces$piece_acres) - sum(changes_clean$piece_acres)
+removed; removed_acres
+```
+
+```{r}
+mapview(changes_clean, zcol = "status",
+        col.regions = c("Lost (2015 only)" = "firebrick",
+                        "New (2020 only)" = "forestgreen"),
+        layer.name = "Ag Land Change 2015–2020")
+```
+
+### Check 6: The capstone check — do the two independent methods agree?
+
+There are now two completely different ways of measuring net ag land change:
+
+1.  **Attribute method**: sum(`acreage` in 2020) − sum(`acreage` in 2015)
+2.  **Geometry method**: area(new_2020) − area(lost_2015), from spatial overlay
+
+These used different data (a stored column vs. computed geometry) and different logic (simple subtraction vs. polygon differencing) — if they roughly agree, that's strong evidence the pipeline is sound. If they diverge significantly, that gap is exactly the kind of discrepancy worth building a class discussion around.
+
+```{r}
+net_change_geometric <- (as.numeric(st_area(new_2020)) - as.numeric(st_area(lost_2015))) / 4046.86
+
+comparison <- tibble(
+  method = c("Attribute-based (sum of acreage column)",
+             "Geometry-based (spatial overlay of dissolved footprints)"),
+  net_change_acres = c(net_change_attribute, net_change_geometric)
+)
+
+comparison
+
+# Absolute and relative gap between the two methods
+gap_acres <- diff(comparison$net_change_acres)
+gap_pct <- 100 * gap_acres / mean(comparison$net_change_acres)
+
+gap_acres; gap_pct
+```
+
+**Discussion prompts for class**, once students get their own gap value:
+
+- If the two methods agree closely: what does that tell you about data quality across the two survey years?
+- If they diverge: is the gap explained by the overlapping-polygon issue from Check 4, the sliver-driven noise from Check 5, or the `acreage`-vs-geometry mismatch from Check 3? Walk backward through the checks to isolate it rather than guessing.
+- A clean number is not the same as a *meaningful* one (recall the Maui exercise, where sugar acreage disappeared from the 2020 category schema entirely) — always ask "changed from what, to what" before reporting a raw net change.
+
+### Category schema consistency check
+
+```{r}
+# Are the same crop categories even present across both years?
+cats_2015 <- unique(ag_2015$cropcatego)
+cats_2020 <- unique(ag_2020$crops_2020)
+
+setdiff(cats_2015, cats_2020)  # categories that vanished after 2015
+setdiff(cats_2020, cats_2015)  # categories that appeared new in 2020
+```
+
+A non-empty result here (like `"Sugar"` vanishing) means part of any acreage "loss" calculated above might be a **classification change**, not a **land-use change** — this is the single most important sanity check before drawing conclusions from this dataset.
+
+------------------------------------------------------------------------
+
+### Function reference summary
+
+| Function | Purpose in this analysis | Documentation |
+|------------------------|------------------------|------------------------|
+| `st_read()` | Load spatial files into `sf` objects | [link](https://r-spatial.github.io/sf/reference/st_read.html) |
+| `st_crs()` | Inspect/compare coordinate reference systems | [link](https://r-spatial.github.io/sf/reference/st_crs.html) |
+| `st_geometry_type()` | Check geometry type consistency | [link](https://r-spatial.github.io/sf/reference/st_geometry_type.html) |
+| `st_is_valid()` | Detect invalid geometries | [link](https://r-spatial.github.io/sf/reference/valid.html) |
+| `st_make_valid()` | Repair invalid geometries | [link](https://r-spatial.github.io/sf/reference/valid.html) |
+| `st_area()` | Compute polygon area | [link](https://r-spatial.github.io/sf/reference/geos_measures.html) |
+| `st_transform()` | Reproject to a different CRS | [link](https://r-spatial.github.io/sf/reference/st_transform.html) |
+| `st_union()` | Dissolve/merge geometries | [link](https://r-spatial.github.io/sf/reference/geos_combine.html) |
+| `st_difference()` | Subtract one geometry set from another | [link](https://r-spatial.github.io/sf/reference/geos_binary_ops.html) |
+| `st_intersection()` | Find overlapping area between geometry sets | [link](https://r-spatial.github.io/sf/reference/geos_binary_ops.html) |
+| `st_intersects()` | Test (don't compute) spatial overlap, as a fast pre-filter | [link](https://r-spatial.github.io/sf/reference/geos_binary_pred.html) |
+| `st_sf()` | Build an `sf` object from attributes + geometry | [link](https://r-spatial.github.io/sf/reference/sf.html) |
+| `st_sfc()` | Build/re-CRS a geometry list-column | [link](https://r-spatial.github.io/sf/reference/sfc.html) |
+| `st_cast()` | Convert between geometry types (e.g., collection → multipolygon, or multipolygon → polygon) | [link](https://r-spatial.github.io/sf/reference/st_cast.html) |
+| `st_drop_geometry()` | Strip geometry for plain data-frame operations | [link](https://r-spatial.github.io/sf/reference/st_geometry.html) |
+| `st_join()` | Spatial (not attribute-key) join between two `sf` objects | [link](https://r-spatial.github.io/sf/reference/st_join.html) |
+
+**Note for class**: `st_union()`, `st_intersection()`, and `st_difference()` are all *set operations* on geometry, differing only in which part of the Venn diagram they keep. Treating them as one family — rather than three unrelated functions to memorize — makes it easier to reason about which one is needed, and to catch when the wrong one has been used.
