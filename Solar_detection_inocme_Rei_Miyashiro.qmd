@@ -1,0 +1,189 @@
+---
+title: "Soalr_detection_Rei_Miyashiro"
+format: html
+editor: visual
+---
+
+## Package
+
+```{r}
+library(tidyverse)
+library(here)
+library(sf)
+library(mapview)
+library(tidycensus)
+```
+
+## Data
+
+```{r}
+oahu_solar <- st_read(here("data/oahu_solar_dedup_simple.geojson"))
+```
+
+## Mapview
+
+```{r}
+mapview(oahu_solar)
+```
+
+```{r}
+oahu_median_household_income <- get_acs(geography = 'tract',
+                                        variables = 'B19013_001',
+                                        state = 'HI',
+                                        county = 'Honolulu',
+                                        geometry = TRUE,
+                                        year = 2022)
+```
+
+```{r}
+ggplot(oahu_median_household_income, aes(x = moe, y = estimate)) +
+  geom_point() +
+  geom_smooth(method = 'lm')
+```
+
+\
+
+- package is sf, language R
+
+- head() of two datasets
+
+- please the identify the best function(s) from sf
+
+- Goal is to answer the question: "Is there a relationship/correlation between median income and solar infrastructure at the census tract level"?.
+
+- one census tract example
+
+- i got our medium income data from tidycensus
+
+### 1. Clean and reproject
+
+```{r}
+# 1. Clean and reproject the solar layer
+oahu_solar_utm <- oahu_solar |>
+  filter(!st_is_empty(geometry)) |>   # drop the 68 empty geometries
+  st_make_valid() |>                  # fix any self-intersecting polygons
+  st_transform(26904)                 # NAD83 / UTM Zone 4N (units = meters)
+
+# 2. Reproject the census tract layer to the same CRS
+oahu_income_utm <- oahu_median_household_income |>
+  st_transform(26904) |>
+  st_make_valid()
+
+# 3. Sanity checks
+st_crs(oahu_solar_utm) == st_crs(oahu_income_utm)  # should be TRUE
+nrow(oahu_solar_utm)                               # should be 88663 - 68 = 88595
+```
+
+### 2. Convert panels to points and join them to tracts
+
+```{r}
+# 1. Reduce each solar polygon to one point guaranteed to fall inside it
+solar_points <- oahu_solar_utm |>
+  st_point_on_surface()
+
+# 2. Spatially join each point to the census tract it falls within
+solar_tract <- st_join(
+  solar_points,
+  oahu_income_utm |> select(GEOID),
+  join = st_within
+)
+
+# 3. Sanity checks
+nrow(solar_tract)              # should still be 88595 (no duplicated panels)
+sum(is.na(solar_tract$GEOID))  # panels that didn't land in any tract
+head(solar_tract)
+```
+
+### 3. Sum solar area per tract and join back to all tracts
+
+```{r}
+# 1. Sum solar area per tract (as a plain table, not spatial)
+solar_by_tract <- solar_tract |>
+  st_drop_geometry() |>              # drop point geometry, keep attributes
+  filter(!is.na(GEOID)) |>           # set aside the 170 unmatched panels
+  group_by(GEOID) |>
+  summarise(
+    n_panels      = n(),
+    solar_area_m2 = sum(area_m2, na.rm = TRUE)
+  )
+
+# 2. Attach the totals back onto ALL census tracts
+tract_solar <- oahu_income_utm |>
+  left_join(solar_by_tract, by = "GEOID") |>
+  mutate(
+    n_panels      = replace_na(n_panels, 0L),
+    solar_area_m2 = replace_na(solar_area_m2, 0)
+  )
+
+# 3. Sanity checks
+nrow(tract_solar) == nrow(oahu_income_utm)       # no tracts lost or duplicated
+sum(tract_solar$solar_area_m2)                   # total solar area assigned
+sum(solar_tract$area_m2[!is.na(solar_tract$GEOID)], na.rm = TRUE)  # should match
+sum(tract_solar$n_panels == 0)                   # tracts with no detected solar
+sum(is.na(tract_solar$estimate))                 # tracts with no income estimate
+```
+
+### 4. normalize solar area and build the analysis dataset
+
+```{r}
+# 1. Get household counts for each tract (same ACS year as income)
+oahu_households <- get_acs(geography = "tract",
+                           variables = "B11001_001",   # total households
+                           state     = "HI",
+                           county    = "Honolulu",
+                           year      = 2022,
+                           geometry  = FALSE) |>
+  select(GEOID, households = estimate)
+
+# 2. Add tract area, household counts, and normalized solar measures
+tract_solar <- tract_solar |>
+  mutate(tract_area_km2 = as.numeric(st_area(geometry)) / 1e6) |>
+  left_join(oahu_households, by = "GEOID") |>
+  mutate(
+    solar_m2_per_hh  = solar_area_m2 / households,
+    solar_m2_per_km2 = solar_area_m2 / tract_area_km2
+  )
+
+# 3. Keep only tracts usable for the income comparison
+analysis_df <- tract_solar |>
+  filter(!is.na(estimate), households > 0) |>
+  rename(median_income = estimate)
+
+# 4. Sanity checks
+nrow(analysis_df)
+analysis_df |>
+  st_drop_geometry() |>
+  select(median_income, households, tract_area_km2,
+         solar_area_m2, solar_m2_per_hh, solar_m2_per_km2) |>
+  summary()
+```
+
+```{r}
+# 1. Look at the most extreme tracts
+analysis_df |>
+  st_drop_geometry() |>
+  slice_max(solar_m2_per_hh, n = 5) |>
+  select(GEOID, NAME, median_income, households,
+         solar_area_m2, solar_m2_per_hh)
+
+# 2. Scatterplot: income vs. solar per household
+ggplot(analysis_df, aes(x = median_income, y = solar_m2_per_hh)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess") +
+  scale_x_continuous(labels = scales::label_dollar()) +
+  scale_y_log10() +
+  labs(
+    title = "Median household income vs. solar panel area per household",
+    subtitle = "Oʻahu census tracts, ACS 2022",
+    x = "Median household income",
+    y = "Solar panel area per household (m², log scale)"
+  ) +
+  theme_minimal()
+
+# 3. Spearman rank correlation for both solar measures
+cor.test(analysis_df$median_income, analysis_df$solar_m2_per_hh,
+         method = "spearman", exact = FALSE)
+
+cor.test(analysis_df$median_income, analysis_df$solar_m2_per_km2,
+         method = "spearman", exact = FALSE) 
+```
