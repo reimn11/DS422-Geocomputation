@@ -16,8 +16,8 @@ library(mapview)
 [**`st_read()`**](https://r-spatial.github.io/sf/reference/st_read.html) reads a spatial file (here, GeoJSON) into an `sf` object — a data frame with a special geometry list-column attached. This is the entry point for everything that follows, so any problem here (wrong CRS, dropped features, malformed geometry) propagates through the whole analysis.
 
 ```{r}
-ag_2015 <- st_read(here("Fall25/data/Agricultural_Land_Use_2015_Baseline.geojson"))
-ag_2020 <- st_read(here("Fall25/data/Agricultural_Land_Use_2020_Update.geojson"))
+ag_2015 <- st_read(here("data/Agricultural_Land_Use_2015_Baseline.geojson"))
+ag_2020 <- st_read(here("data/Agricultural_Land_Use_2020_Update.geojson"))
 ```
 
 ### Check 1: Basic structural consistency between the two datasets
@@ -83,7 +83,7 @@ as.numeric(area_after_2020 - area_before_2020)
 Fifteen unique `cropcatego` values is too many categories for most default qualitative palettes — `mapview`'s default and `RColorBrewer`'s largest qualitative sets top out well below that, and interpolating them past their design range produces muddy, hard-to-distinguish colors. `viridis`-style palettes are built for *ordered* data and can misleadingly imply a ranking across unordered categories like crop type, so they're a poor fit here too. The `pals` package provides palettes purpose-built for many discrete, unordered categories:
 
 ```{r}
-# install.packages("pals")
+#install.packages("pals")
 library(pals)
 
 n_cats <- length(unique(ag_2015$cropcatego))
@@ -101,6 +101,7 @@ sum_2020_acreage <- sum(ag_2020$acreage)
 
 net_change_attribute <- sum_2020_acreage - sum_2015_acreage
 net_change_attribute
+
 ```
 
 ### Check 3: Does the `acreage` attribute agree with the geometry itself?
@@ -350,7 +351,7 @@ A non-empty result here means part of any acreage "loss" calculated above might 
 ### Function reference summary
 
 | Function | Purpose in this analysis | Documentation |
-|------------------------|------------------------|------------------------|
+|----|----|----|
 | `st_read()` | Load spatial files into `sf` objects | [link](https://r-spatial.github.io/sf/reference/st_read.html) |
 | `st_crs()` | Inspect/compare coordinate reference systems | [link](https://r-spatial.github.io/sf/reference/st_crs.html) |
 | `st_geometry_type()` | Check geometry type consistency | [link](https://r-spatial.github.io/sf/reference/st_geometry_type.html) |
@@ -371,4 +372,29 @@ A non-empty result here means part of any acreage "loss" calculated above might 
 
 ### Your Turn
 
-I showed you where the change was, what was the ag land designation (cropcatego) with the most significant acreage ost
+I showed you where the change was, what was the ag land designation (cropcatego) with the most significant acreage lost\
+
+```{r}
+cat_2015 <- tapply(ag_2015$acreage, ag_2015$cropcatego, sum)
+cat_2020 <- tapply(ag_2020$acreage, ag_2020$crops_2020, sum)
+
+cats <- union(names(cat_2015), names(cat_2020))
+
+change <- cat_2020[cats] - cat_2015[cats]
+names(change) <- cats
+change[is.na(change)] <- 0
+
+sort(change)
+```
+
+```{r}
+df_change <- data.frame(crop = names(change), change = as.numeric(change))
+
+ggplot(df_change, aes(x = reorder(crop, change), y = change)) +
+  geom_col() +
+  coord_flip() +
+  xlab("Crops") +
+  ylab("Value")
+```
+
+I tried to add the colors to show plus or minus.

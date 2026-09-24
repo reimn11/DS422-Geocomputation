@@ -47,7 +47,7 @@ Electric light is the dominant source of that signal over developed land. If the
 Three periods structure the analysis:
 
 | Period | Dates | Nights | Treatment |
-|-----------------|-----------------|-----------------|-----------------------|
+|----|----|----|----|
 | Baseline | Aug 3 – Aug 13 | 11 requested, 7 returned | Averaged into one reference image |
 | Storm | Aug 14 – Aug 17 | 4 | Compared individually |
 | Recovery | Aug 18 – Aug 21 | 4 | Compared individually |
