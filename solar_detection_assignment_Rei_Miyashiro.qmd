@@ -1,0 +1,511 @@
+---
+title: "solar_detection_assignment_Rei_Miyashiro"
+format: html
+editor: visual
+---
+
+## Libraries
+
+```{r}
+library(geosam)
+library(sf)
+library(tidyverse)
+library(mapgl)
+library(tidycensus)
+library(kableExtra)
+
+```
+
+```{r}
+
+solar <- st_read("data/oahu_solar_dedup_simple.geojson")
+
+# What's in it?
+names(solar) #Line name
+nrow(solar)  # number of line (poligon)
+st_crs(solar) #cordinate
+head(solar) 
+
+# Compute area in meters (UTM zone 4N), since degrees aren't a real unit of area
+solar <- solar |>
+  st_make_valid() |> # fix the broken poligon
+  st_transform(32604) |> # change to UTM 4N
+  mutate(area_m2_calc = as.numeric(st_area(geometry))) # st_area() cakcukate each poligon's area
+
+# Summary statistics
+summary(solar$area_m2_calc)
+quantile(solar$area_m2_calc, c(.5, .75, .9, .95, .99, .999))
+sum(solar$area_m2_calc) / 1e6        # total detected solar area, km²
+```
+
+- 88663 poligions, and 4 lines (+geometry)
+
+- 68 empty geometry \<- I have to remove later
+
+- Bounding Box： longitude: −158.26〜−157.66 , latitude: 21.26〜21.71 \<- Oahu
+
+- 99% (2707.43236) would be mega solar...?
+
+- 4.97km2 is the sum of the area
+
+**Most panels are small residential ones around 25 m², but a few are huge (like mega-solar farms or large commercial buildings). That is why the average is more than double the median.**
+
+## Drop the empty polygons
+
+```{r}
+solar <- solar |>
+  filter(!st_is_empty(geometry))
+```
+
+### Area Distribution plot
+
+```{r}
+ggplot(solar, aes(area_m2_calc)) +
+  geom_histogram(bins = 60, fill = "goldenrod") +
+  scale_x_log10(labels = scales::comma) + # show number with comma
+  labs(x = "Polygon area (m², log scale)", y = "Count",
+       title = "Size distribution of detected solar polygons")
+```
+
+- The highest bar will be 25 - 40. This is would be the normal house size.
+
+### Compare polygons with satellite imagery
+
+```{r}
+solar_ll <- st_transform(solar, 4326) |> # cahnge to WGS84 for mapbox
+  mutate(area_label = paste0(round(area_m2_calc), " m², score ", round(score, 2)))
+
+mapboxgl(style = mapbox_style("satellite"), bounds = solar_ll) |> # bounds will automatically                                                                        zoom the map.
+  add_fill_layer(
+    id = "solar",
+    source = solar_ll,
+    fill_color = interpolate( # interpolate means it blends colors smoothly to show the values                                 in between
+      column = "area_m2_calc",
+      values = c(10, 100, 1000, 10000),  
+      stops  = c("yellow", "orange", "red", "magenta")
+    ),
+    fill_opacity = 0.5,
+    popup = "area_label"
+  )
+```
+
+### Step 5: median income by census tract
+
+```{r}
+#| eval: false
+install.packages("tidycensus")
+```
+
+```{r}
+oahu_box <- st_as_sfc(st_bbox(st_transform(solar, 32604)))　# UTM 4N, make Oahu area box
+
+income <- get_acs(
+  geography = "tract",
+  variables = c(median_income = "B19013_001",   # median 
+                households    = "B11001_001",   # number of house
+                owner_units   = "B25003_002"),  # owner-occupied housing units
+  state = "HI", 
+  county = "Honolulu",
+  year = 2024,      # 2020 - 2024
+  geometry = TRUE, 
+  output = "wide"
+) |>
+  st_transform(32604) |> # adjust coordinates for Oahu box
+  st_filter(oahu_box) |>
+  mutate(tract_area_km2 = as.numeric(st_area(geometry)) / 1e6)
+
+nrow(income)
+sum(is.na(income$median_incomeE)) # count NA 
+
+# make the map
+ggplot(income) +
+  geom_sf(aes(fill = median_incomeE), color = NA) + 
+  scale_fill_viridis_c(labels = scales::dollar, na.value = "grey80") + # Viridis is designed to                                                           look perfect even in black and white
+  labs(fill = "Median household\nincome",
+       title = "Median household income by census tract, Oahu (ACS 2020–2024)") +
+  theme_void()
+```
+
+## Step 6: Create a map of solar infrastructure in census tract level
+
+joint solar polygon and income
+
+```{r}
+solar_pts <- solar |>
+  st_transform(32604) |> # change inocme to same coordinates
+  st_point_on_surface() # change polygon into point
+
+solar_by_tract <- st_join(solar_pts, select(income, GEOID)) |>
+  st_drop_geometry() |> # make it faster for calculation
+  group_by(GEOID) |>
+  summarise(solar_m2   = sum(area_m2_calc), # total area of solar 
+            n_polygons = n())               # number of poligons
+
+tracts <- income |>
+  left_join(solar_by_tract, by = "GEOID") |> # joint key is GEOID
+  mutate(solar_m2   = replace_na(solar_m2, 0), # replace 0 if there is no solar light
+         n_polygons = replace_na(n_polygons, 0L))
+
+# Checks
+sum(tracts$solar_m2) / sum(solar$area_m2_calc)   # share of solar area matched to a tract
+sum(is.na(solar_by_tract$GEOID))                 # polygons that fell outside every tract
+summary(tracts$solar_m2)
+```
+
+Result
+
+- 99.78% area were assigned to tract
+
+- max area (511053) would be the area of mega solar so drop in step 8.
+
+```{r}
+ggplot(tracts) +
+  geom_sf(aes(fill = solar_m2), color = NA) +
+  scale_fill_viridis_c(option = "magma", 
+                       transform = "log1p", #Apply colors using a logarithmic scale
+                       labels = scales::comma,
+                       breaks = c(0, 1000, 10000, 100000)) +
+  labs(fill = "Detected solar\narea (m²)",
+       title = "Total detected solar area by census tract, Oahu") +
+  theme_void()
+```
+
+## Step 7
+
+| Measure | What it tells us | Weakness |
+|------------------------|------------------------|------------------------|
+| m² per household | How much solar there is per home | Apartment-heavy tracts look low, because many households share one roof |
+| m² per owner-occupied unit | Solar among homes whose residents can decide to install it | Tracts with few owners give unstable values |
+| m² per km² of land | How densely solar is packed | Mostly reflects how urban a tract is, not households |
+
+We use **m² per household** as the main measure because median household income is also measured per household.
+
+| Field Name |  Formula | Explanation |
+|----|----|----|
+| solar_per_hh | Solar Area ÷ Households | Solar area per household (Primary metric) |
+| solar_per_owner | Solar Area ÷ Owned Houses | Solar area per owned house |
+| solar_per_km2 | Solar Area ÷ District Area (km²) | Solar area per km² (Density) |
+|  |  |  |
+
+```{r}
+tracts <- tracts |>
+  mutate(
+    solar_per_hh    = if_else(householdsE  > 0, solar_m2 / householdsE,  NA_real_),
+    solar_per_owner = if_else(owner_unitsE > 0, solar_m2 / owner_unitsE, NA_real_),
+    solar_per_km2   = solar_m2 / tract_area_km2
+  )
+
+summary(tracts$solar_per_hh)
+
+# Which tracts have the most solar? (sets up Step 8)
+tracts |>
+  st_drop_geometry() |> # make it usual graph
+  arrange(desc(solar_m2)) |>　# total area of 
+  select(NAME, solar_m2, n_polygons, householdsE, tract_area_km2, median_incomeE, solar_per_hh) |>
+  head(10) # Top10 area
+```
+
+- **District 89.31:** Total area of 511,053 m², with only 794 households. This is a large district of 72 km² with the highest income in the table (\$204,583). The solar area is 644 m² per household, which is about 25 times larger than a normal residential roof (around 25 m²). This high number may caused by mega-solar farms, not residential roofs.
+
+- **District 100:** A very large rural district spanning 190 km². It averages 111 m² per household.
+
+- **District 85.02**: Averages 151 m² per household.
+
+- **District 89.33:** A small district of only 4 km², but has a high total solar area of 222,340 m². It averages 186 m² per household.
+
+```{r}
+ggplot(tracts) +
+  geom_sf(aes(fill = solar_per_hh), color = NA) + # per households
+  scale_fill_viridis_c(option = "magma", transform = "log1p",
+                       breaks = c(0, 10, 100, 1000),
+                       labels = scales::comma, na.value = "grey80") +
+  labs(fill = "Solar area per\nhousehold (m²)",
+       title = "Detected solar area per household by census tract, Oahu") +
+  theme_void()
+```
+
+The tracts that stand out are large rural tracts with solar farms (for example, Census Tract 89.31) and tracts with very few households, where a small amount of solar becomes a large per-household value. Normalization alone does not fix these problems, so Step 8 removes large clusters and tracts with fewer than 100 households.
+
+## Step 8, part A: Are solar farms one big polygon?
+
+Size distribution: how much area do the large single polygons account for?
+
+```{r}
+solar_utm <- st_transform(solar, 32604)　# change to UTM 4N
+
+tibble(threshold = c(100, 250, 500, 1000, 2500, 5000)) |>
+  rowwise() |> # to make the numbers calculate separately
+  mutate(
+    n_polygons_above = sum(solar_utm$area_m2_calc > threshold),
+    pct_polygons     = 100 * n_polygons_above / nrow(solar_utm),
+    pct_total_area   = 100 * sum(solar_utm$area_m2_calc[solar_utm$area_m2_calc > threshold]) /
+      sum(solar_utm$area_m2_calc)
+  )
+
+```
+
+- **Polygons over 100 m² make up only 6.6% of the total count, but account for more than half (54.4%) of the total area.**
+
+- **Polygons over 1,000 m² make up a mere 0.47% (412 items), yet they occupy 22.2% of the total area.**
+
+- **Just 36 polygons over 5,000 m² represent about 9% of the entire area.**
+
+Polygons larger than 1,000 m² made up only 0.47% of all polygons but 22.2% of the total solar area.
+
+------------------------------------------------------------------------
+
+Proximity: group polygons that are close to each other.
+
+```{r}
+clusters <- solar_utm |>
+  st_buffer(5) |> # extend the polygon's area
+  st_union() |>  # Merge all 88,595 polygons into a single shape
+  st_cast("POLYGON") |>
+  st_as_sf() |>
+  mutate(cluster_id = row_number())
+
+# Assign each polygon to its cluster
+solar_utm <- solar_utm |>
+  mutate(cluster_id = st_join(st_point_on_surface(solar_utm), clusters)$cluster_id)
+
+cluster_stats <- solar_utm |>
+  st_drop_geometry() |>
+  group_by(cluster_id) |>
+  summarise(cluster_area_m2 = sum(area_m2_calc),
+            n_polys         = n()) |>
+  arrange(desc(cluster_area_m2))
+
+nrow(cluster_stats)
+head(cluster_stats, 15)
+quantile(cluster_stats$cluster_area_m2, c(.5, .9, .95, .99, .999))
+```
+
+**Why did I expand? 'st_buffer(5)'**
+
+1.  Mega-solar farms are sometimes detected as small, separate fragments.
+2.  Because these fragments are slightly apart, they cannot be merged as they are.
+3.  By expanding each fragment by 5 meters, fragments within 10 meters will connect.
+4.  Connected fragments are then grouped into a single cluster (representing one facility).
+5.  Finally, we sum the original polygon areas and remove any cluster over 1,000 m² as "non-residential."
+
+**Are solar farms one big polygon?**
+
+No. Mega-solar farms are sometimes detected as a few large polygons, and other times they are split into over 100 fragments. Some large installations were detected as a few very large polygons (for example, 71,309 m² in 6 polygons), while others were split into many small pieces (89,115 m² in 138 polygons, about 646 m² each).
+
+------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+**3. Look at the biggest clusters on satellite imagery:**
+
+Large spatial clusters exceeding 1,000 m² can be verified as non-residential by performing a visual inspection using satellite imagery
+
+```{r}
+big_ids <- cluster_stats |> filter(cluster_area_m2 > 1000) |> pull(cluster_id)
+
+big_polys <- solar_utm |>
+  filter(cluster_id %in% big_ids) |>
+  left_join(cluster_stats, by = "cluster_id") |>
+  st_transform(4326) |>
+  mutate(label = paste0("Cluster ", cluster_id, ": ",
+                        round(cluster_area_m2), " m², ", n_polys, " polygons"))
+
+mapboxgl(style = mapbox_style("satellite"), bounds = big_polys) |>
+  add_fill_layer(id = "big", source = big_polys,
+                 fill_color = "red", fill_opacity = 0.5, popup = "label")
+```
+
+## Step 8, part B: remove commercial and utility-scale clusters
+
+```{r}
+cluster_cut <- 1000
+
+large_ids <- cluster_stats |>
+  filter(cluster_area_m2 > cluster_cut) |>
+  pull(cluster_id)
+
+solar_res <- solar_utm |> filter(!cluster_id %in% large_ids) # TRUE or FLASE
+
+# How much was removed?
+length(large_ids)                                         # clusters removed
+nrow(solar_utm) - nrow(solar_res)                         # polygons removed
+1 - sum(solar_res$area_m2_calc) / sum(solar_utm$area_m2_calc)   # share of area removed
+```
+
+**By removing just 3.5% of the polygons, 39.5% of the total area disappeared. This means that about 40% of the solar installations detected on Oahu are large, non-residential facilities.**
+
+**Reasoning for the 1,000 m² threshold:**
+
+- Even for large houses, residential roofs are only about 150 to 200 m² at most.
+
+- In Part A, 99% of the clusters were 789 m² or smaller.
+
+------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+Recalculate solar per tract
+
+```{r}
+solar_to_tracts <- function(polys) {
+  sums <- polys |>
+    st_point_on_surface() |> # make it point
+    st_join(select(income, GEOID)) |>
+    st_drop_geometry() |>
+    filter(!is.na(GEOID)) |>
+    group_by(GEOID) |>
+    summarise(solar_m2 = sum(area_m2_calc), n_polygons = n())
+  
+  income |>
+    left_join(sums, by = "GEOID") |>
+    mutate(solar_m2     = replace_na(solar_m2, 0),
+           n_polygons   = replace_na(n_polygons, 0L),
+           solar_per_hh = if_else(householdsE > 0, solar_m2 / householdsE, NA_real_))
+}
+
+tracts_res <- solar_to_tracts(solar_res)
+
+# Did the farm tracts drop?
+tracts_res |>
+  st_drop_geometry() |>
+  arrange(desc(solar_per_hh)) |>
+  select(NAME, solar_m2, n_polygons, householdsE, median_incomeE, solar_per_hh) |>
+  head(10)
+
+summary(tracts_res$solar_per_hh)
+```
+
+Districts heavily impacted by mega-solar farms, such as District 89.31, dropped out of the top rankings. This successfully solved the issue where large installations warped the residential data analysis. The proof is that while the average and maximum values fell drastically, the median remained almost completely unchanged.
+
+**Map of residential-scale solar per household:**
+
+```{r}
+ggplot(tracts_res) + #Data after removing large clusters
+  geom_sf(aes(fill = solar_per_hh), color = NA) +
+  scale_fill_viridis_c(option = "magma", na.value = "grey80") +
+  labs(fill = "Residential-scale\nsolar per\nhousehold (m²)",
+       title = "Detected residential-scale solar per household, Oahu",
+       subtitle = "Clusters > 1,000 m² removed") +
+  theme_void()
+```
+
+### Fix: set a minimum number of households
+
+```{r}
+tracts_final <- tracts_res |>
+  mutate(special_tract = str_detect(NAME, "Census Tract 98")) |>
+  filter(!is.na(median_incomeE), householdsE >= 100)
+
+nrow(tracts_final)
+count(st_drop_geometry(tracts_final), special_tract)
+summary(tracts_final$solar_per_hh)
+```
+
+**Houses in the 98xx districts (such as military family housing) have unique characteristics:**
+
+- **The residents are usually renters, not the homeowners.**
+
+- **The decision to install solar panels is made by the housing management company or the military, rather than the residents.**
+
+**The 98xx districts are not deleted; they are only flagged.** We keep them in the main dataset to compare them against the "without 98xx" scenario in the Step 11 sensitivity analysis.
+
+------------------------------------------------------------------------
+
+```{r}
+ggplot() +
+  geom_sf(data = tracts_res, fill = "grey85", color = NA) +   # excluded tracts in grey
+  geom_sf(data = tracts_final, aes(fill = solar_per_hh), color = NA) + # Overlay them on top
+  scale_fill_viridis_c(option = "magma") +
+  labs(fill = "Residential-scale\nsolar per\nhousehold (m²)",
+       title = "Detected residential-scale solar per household, Oahu",
+       subtitle = "Clusters > 1,000 m² removed; tracts with < 100 households in grey") +
+  theme_void()
+```
+
+```{r}
+
+library(patchwork)
+
+map_income <- ggplot(tracts_final) +
+  geom_sf(aes(fill = median_incomeE), color = NA) +
+  scale_fill_viridis_c(labels = scales::dollar) +
+  labs(fill = "Median\nincome", title = "Median household income") +
+  theme_void()
+
+map_solar <- ggplot(tracts_final) +
+  geom_sf(aes(fill = solar_per_hh), color = NA) +
+  scale_fill_viridis_c(option = "magma") +
+  labs(fill = "Solar per\nhousehold (m²)", title = "Residential solar per household") +
+  theme_void()
+
+map_income + map_solar
+```
+
+There are both similarities and differences.\
+Honolulu’s urban core is low in both maps. The large districts in Central Oahu have bright yellow-green colors for income, but they do not have the brightest colors for solar.
+
+## Step 9: Combine solar and income data
+
+The solar data and the median income data were joined by census tract ID (GEOID) with `left_join()` inside `solar_to_tracts()` (Step 8). After filtering, `tracts_final` is one spatial dataframe with both.
+
+```{r}
+class(tracts_final)
+
+tracts_final |>
+  select(GEOID, NAME, median_incomeE, solar_m2, solar_per_hh) |>
+  head()
+```
+
+###  
+
+## Step 10: Scatter Plot
+
+```{r}
+ggplot(tracts_final, aes(x = median_incomeE, y = solar_per_hh)) +
+  geom_point(aes(color = special_tract), alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  scale_x_continuous(labels = scales::dollar) +
+  scale_color_manual(values = c(`FALSE` = "grey30", `TRUE` = "red"),
+                     labels = c("Regular tract", "Special-use tract (98xx)")) +
+  labs(x = "Median household income (ACS 2020–2024)",
+       y = "Residential-scale solar area per household (m²)",
+       color = NULL,
+       title = "Median income vs. detected residential solar, Oahu census tracts") +
+  theme_minimal()
+```
+
+there is a trend where "districts with higher incomes have more residential solar per household." However, as income gets higher, the scatter of the data points becomes wider.
+
+------------------------------------------------------------------------
+
+## Step 11: correlation and p-value
+
+```{r}
+cor.test(tracts_final$median_incomeE, tracts_final$solar_per_hh, method = "pearson")
+cor.test(tracts_final$median_incomeE, tracts_final$solar_per_hh, method = "spearman", exact = FALSE)
+```
+
+|   | Linear (Pearson) | Rank (Spearman) |
+|----|----|----|
+| What it uses | Actual valurees | Rankings (1st, 2nd, 3rd...) |
+| What it measures | Liner relationships | When one goes up, the other also goes up. |
+| Outlier Impact | Highly sensitive | Not Sensitive |
+
+Pearson: t = 9.4845, df = 312, p-value \< 2.2e-16
+
+- `t = 9.4845` (Test Statistic): The further this value is from 0, the harder it is to believe that there is "no correlation" between the variables.
+
+- `df = 312` (Degrees of Freedom): This is calculated as the number of districts (314) minus 2.
+
+- `p-value < 2.2e-16` (p-value): This means the p-value is smaller than 2.2×10−16 (less than 0.00000000000000022), which is an extremely tiny number.
+
+95 percent confidence interval:0.38 to 0.55
+
+sample estimates: **r = 0.47**
+
+Spearman：S = 2182964, p-value \< 2.2e-16
+
+Spearman's rank correlation coefficient **ρ (rho) = 0.58**
+
+**Results are r = 0.47 and ρ = 0.58.**\
+**This indicates a moderate to moderately strong positive correlation.**
