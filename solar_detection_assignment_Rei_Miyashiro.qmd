@@ -438,7 +438,7 @@ map_solar <- ggplot(tracts_final) +
   labs(fill = "Solar per\nhousehold (m²)", title = "Residential solar per household") +
   theme_void()
 
-map_income + map_solar
+map_income + map_solar 
 ```
 
 There are both similarities and differences.\
