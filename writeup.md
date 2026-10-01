@@ -11,7 +11,7 @@ I placed each remaining polygon into one tract, using a point inside the polygon
 ## Results
 
 Tracts with higher median income had more residential solar per household. The relationship was moderate, positive, and statistically significant (Pearson r = 0.47, 95% CI 0.38–0.55, p < 0.001; Spearman ρ = 0.58, p < 0.001) (Figure 1). Income explains about 22% of the differences in solar between tracts (r² ≈ 0.22). The spread of values grew at higher incomes, and a few lower-income tracts had a lot of solar.
-
+ 
 ![Figure 1. Median household income vs. residential solar per household](figures/fig1_scatter.png)
 
 In total, SAM3 detected 4.98 km² of solar, and 99.8% of it fell inside a tract. Large installations made up a big share. The 412 clusters I removed were only 3.5% of all polygons but 39.5% of the total solar area. If I had removed only single polygons over 1,000 m², I would have removed just 22.2%, because many solar farms were split into small pieces. Before removal, Census Tract 89.31 had 511,053 m² of solar for only 794 households (644 m² per household). This came from a solar farm, not rooftops.

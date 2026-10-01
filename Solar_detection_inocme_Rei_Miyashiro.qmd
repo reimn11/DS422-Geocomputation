@@ -187,3 +187,76 @@ cor.test(analysis_df$median_income, analysis_df$solar_m2_per_hh,
 cor.test(analysis_df$median_income, analysis_df$solar_m2_per_km2,
          method = "spearman", exact = FALSE) 
 ```
+
+## Geosam
+
+```{r}
+install.packages("geosam", repos = c("https://walkerke.r-universe.dev", "https://cloud.r-project.org"))
+```
+
+```{r}
+library(geosam) 
+geosam_install(method = "virtualenv") 
+```
+
+```{r}
+library(geosam)
+geosam_status()
+```
+
+f
+
+```{r}
+unlink("~/Library/Application Support/geosam", recursive = TRUE)
+```
+
+```{r}
+Sys.setenv(PIP_ONLY_BINARY = "rasterio,pyproj")
+library(geosam)
+geosam_install(method = "virtualenv")
+```
+
+```{r}
+library(geosam)
+geosam_status()
+```
+
+```{r}
+reticulate::virtualenv_install(
+  venv,
+  packages = c("numpy", "torch>=2.7", "torchvision", "torchaudio",
+               "transformers>=5.0.0", "huggingface_hub",
+               "rasterio>=1.3", "geopandas>=0.14", "shapely>=2.0",
+               "pyproj>=3.6", "pillow>=10.0", "requests>=2.31"),
+  pip_options = "--only-binary=:all:"
+)N
+```
+
+```{r}
+reticulate::use_virtualenv("~/Library/Application Support/geosam/venvs/geosam", required = TRUE)
+library(geosam)
+geosam_status()
+```
+
+```{r}
+geosam_diagnose()
+```
+
+```{r}
+remove.packages("geosam")
+```
+
+```{r}
+
+```
+
+## Analitics
+
+```{r}
+field <- sam_detect(
+  bbox = c(-97.372, 32.707, -97.366, 32.712),
+  text = "football field",
+  source = "mapbox",
+  zoom = 17
+)
+```
