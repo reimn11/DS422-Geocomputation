@@ -430,7 +430,7 @@ map_income <- ggplot(tracts_final) +
   geom_sf(aes(fill = median_incomeE), color = NA) +
   scale_fill_viridis_c(labels = scales::dollar) +
   labs(fill = "Median\nincome", title = "Median household income") +
-  theme_void()
+  theme_void() 
 
 map_solar <- ggplot(tracts_final) +
   geom_sf(aes(fill = solar_per_hh), color = NA) +

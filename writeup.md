@@ -1,6 +1,6 @@
 # Median Income and Residential Solar on Oahu: Methods and Results
 
-## Methods
+## Methods 
 
 I used the SAM3 solar panel detections for all of Oahu (88,663 polygons). I removed 68 empty polygons. I changed the map projection to UTM Zone 4N (EPSG:32604) so I could measure each polygon's area in square meters. I got census tract boundaries, median household income, and the number of households from the 2020–2024 American Community Survey (ACS) 5-year estimates, using the tidycensus R package. I kept the 328 tracts on Oahu.
 
