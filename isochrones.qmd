@@ -11,9 +11,11 @@ An **isochrone** is a line or polygon on a map that connects all points reachabl
 ### Libraries
 
 ```{r}
+#install.packages('mapboxapi')
 library(mapboxapi)
 library(leaflet)
 library(mapview)
+
 ```
 
 ### Create Isochrone
@@ -21,8 +23,9 @@ library(mapview)
 ```{r}
 isos <- mb_isochrone(
   location = "One Bowerman Dr, Beaverton, OR 97005",
-  profile = "driving",
-  time = 1:45
+  profile = "driving-traffic",
+  time = 1:45,
+  depart_at = "2026-10-01T16:00"
 )
 ```
 
@@ -33,6 +36,7 @@ mapview(isos, zcol = "time")
 ```{r}
 library(sf)
 library(fasterize)
+
 
 isos_proj <- st_transform(isos, 32618)
 
@@ -70,13 +74,71 @@ nike_map %>%
 ### Your turn - Recreate for Chaminade
 
 ```{r}
-
+chaminade_isos <- mb_isochrone(
+  location = "3140 Waialae Ave, Honolulu, HI 96816",
+  profile = "driving",
+  time = 1:45 
+)
 ```
 
 ```{r}
-
+mapview(chaminade_isos, zcol = "time")
 ```
 
-### Lets go further 
+```{r}
+chaminade_proj <- st_transform(chaminade_isos, 32604)
+
+chaminade_template <- raster(chaminade_proj, resolution = 100)
+
+chaminade_surface <- fasterize(chaminade_proj, chaminade_template,
+                               field = "time", fun = "min")
+
+chaminade_pal <- colorNumeric("plasma", chaminade_isos$time,
+                              na.color = "transparent")
+chaminade_pal
+
+chaminade_map <- leaflet() %>%
+  addMapboxTiles(style_id = "light-v9",
+                 username = "mapbox",
+                 scaling_factor = "0.5x") %>%
+  addRasterImage(chaminade_surface, colors = chaminade_pal, opacity = 0.5) %>%
+  addLegend(values = chaminade_isos$time, pal = chaminade_pal,
+            title = "Drive-time from<br>Chaminade University")
+
+chaminade_map
+```
+
+```{r}
+chaminade_icon <- makeIcon(
+  iconUrl = "https://ucm.sfo3.digitaloceanspaces.com/wp-content/uploads/2018/08/08074024/Chaminade-Seal.png",
+  iconWidth = 25,
+  iconHeight = 25
+)
+
+chaminade_hq <- mb_geocode("3140 Waialae Ave, Honolulu, HI 96816")
+
+chaminade_map %>%
+  addMarkers(lng = chaminade_hq[1], lat = chaminade_hq[2], icon = chaminade_icon)
+```
+
+### Lets go further
 
 Question: Can we make an accessibility surfaces map for trauma centers, ER's, hospitals, fire stations etc. Maybe combine all of them into one shiny app. Let's strategise and design...
+
+App Design
+
+fire station :'mb_isochrone' works well \<- I gonna focus on.
+
+amburance:
+
+shelter:
+
+can't go off base travel time in island wide emergency situation
+
+hospital, trauma centers. etc...
+
+senior transportation
+
+police stations, hostage
+
+swim, lifeguard response
