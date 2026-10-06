@@ -1,0 +1,87 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+```{r}
+library(sf)
+library(dplyr)
+library(leaflet)
+library(mapboxapi)
+library(mapview)
+
+fire_all <- st_read("data/Statewide_Fire_Stations.geojson")
+
+names(fire_all)            
+table(fire_all$county)     
+
+fire_oahu <- fire_all %>% filter(island == "Oahu")
+nrow(fire_oahu)
+```
+
+## Map the point
+
+```{r}
+library(leaflet)
+
+leaflet(fire_oahu) %>%
+  addTiles() %>%
+  addCircleMarkers(radius = 4, label = ~name)
+```
+
+### Create Isochrone
+
+```{r}
+fire_isos <- mb_isochrone(
+  fire_oahu,
+  profile = "driving",
+  time = 1:10,
+  depart_at = "2026-10-01T16:00"
+)
+```
+
+```{r}
+mapview(fire_isos, zcol = "time")
+```
+
+```{r}
+library(sf)
+library(fasterize)
+library(raster)
+library(leaflet)
+library(mapboxapi)
+
+
+fire_proj <- st_transform(fire_isos, 32604)   # UTM zone 4N for Oʻahu
+
+fire_template <- raster(fire_proj, resolution = 100)
+
+fire_surface <- fasterize(fire_proj, fire_template,
+                          field = "time", fun = "min")
+
+fire_surface
+
+fire_pal <- colorNumeric("plasma", fire_isos$time, na.color = "transparent")
+
+fire_map <- leaflet() %>%
+  addMapboxTiles(style_id = "light-v9",
+                 username = "mapbox",
+                 scaling_factor = "0.5x") %>%
+  addRasterImage(fire_surface, colors = fire_pal, opacity = 0.5) %>%
+  addCircleMarkers(data = fire_oahu, radius = 3, color = "black",
+                   stroke = FALSE, fillOpacity = 0.9,
+                   label = ~name) %>%
+  addLegend(values = fire_isos$time, pal = fire_pal,
+            title = "Minutes to nearest<br>fire station")
+
+fire_map
+```
+
+- change the color for each fire station
+
+- input address, date and time
+
+```{r}
+
+```
