@@ -173,14 +173,14 @@ ggplot(tracts) +
 ## Step 7
 
 | Measure | What it tells us | Weakness |
-|------------------------|------------------------|------------------------|
+|----|----|----|
 | m² per household | How much solar there is per home | Apartment-heavy tracts look low, because many households share one roof |
 | m² per owner-occupied unit | Solar among homes whose residents can decide to install it | Tracts with few owners give unstable values |
 | m² per km² of land | How densely solar is packed | Mostly reflects how urban a tract is, not households |
 
 We use **m² per household** as the main measure because median household income is also measured per household.
 
-| Field Name |  Formula | Explanation |
+| Field Name | Formula | Explanation |
 |----|----|----|
 | solar_per_hh | Solar Area ÷ Households | Solar area per household (Primary metric) |
 | solar_per_owner | Solar Area ÷ Owned Houses | Solar area per owned house |
@@ -456,7 +456,7 @@ tracts_final |>
   head()
 ```
 
-###  
+### 
 
 ## Step 10: Scatter Plot
 

@@ -4,14 +4,14 @@ format: html
 editor: visual
 ---
 
-## **Installation** 
+## **Installation**
 
 ```{r}
 # install.packages("devtools")
 devtools::install_github("worldbank/blackmarbler")
 ```
 
-##  Running Code
+## Running Code
 
 When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
 
@@ -109,7 +109,7 @@ r_2021 <- bm_raster(roi_sf = roi_sf,
                     bearer = bearer)
 ```
 
-### **Make raster of nighttime lights across multiple time periods** 
+### **Make raster of nighttime lights across multiple time periods**
 
 ```{r}
 #### Daily data in March 2021
