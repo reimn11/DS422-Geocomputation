@@ -1,0 +1,349 @@
+---
+title: "LODES Data"
+format: html
+editor: visual
+---
+
+### Welcome
+
+This is our Geocomputation lab on Employer-Household Dynamics. This is an R analysis [inspired by this post](https://walker-data.com/posts/lodes-2020/)
+
+### Libraries    
+
+```{r}
+library(lehdr)
+library(tigris)
+library(mapgl)
+library(sf)
+library(dplyr)
+library(purrr)
+library(mapview)
+library(ggplot2)
+library(scales)
+options(tigris_use_cache = TRUE)
+
+#install.packages('lehdr')
+```
+
+### Data
+
+Our data is from the [Longitudinal Employer-Household Dynamics (LEHD)](https://lehd.ces.census.gov/) study from the US Census Bureau. When interacting with data like these, we should always think: "is there an r package that can make interacting with this data easier?". And the answer is yes!
+
+The [lehdr package](https://jamgreen.github.io/lehdr/index.html) allows users to interface with the [Longitudinal Employer-Household Dynamics (LEHD)](https://lehd.ces.census.gov/) Origin-Destination Employment Statistics (LODES) dataset, returned as tidy data frames
+
+```{r}
+hi_od <- grab_lodes(
+  state      = "hi",
+  year       = 2022,
+  lodes_type = "od",
+  job_type   = "JT00",
+  segment    = "S000",
+  state_part = "main",
+  agg_geo    = "tract",
+  geometry   = TRUE
+) |>
+  st_as_sf(sf_column_name = "w_geometry")
+```
+
+How did this `grab_lodes()` function work
+
+```{r}
+?grab_lodes
+```
+
+What do these column names mean?
+
+Each row is one home-tract-to-work-tract pair. The numbers count **jobs** (in your call, `JT00` means all jobs), so a person with two jobs can appear twice.
+
+| Column | Meaning |
+|------------------------------------|------------------------------------|
+| `year` | Data year (2022) |
+| `state` | State abbreviation |
+| `w_tract` | GEOID of the **work** tract |
+| `h_tract` | GEOID of the **home** tract |
+| `S000` | Total jobs in this home-to-work flow |
+| `SA01` | Jobs held by workers aged 29 or younger |
+| `SA02` | Workers aged 30–54 |
+| `SA03` | Workers aged 55 or older |
+| `SE01` | Jobs earning \$1,250/month or less |
+| `SE02` | \$1,251–\$3,333/month |
+| `SE03` | More than \$3,333/month |
+| `SI01` | Goods-producing industries (agriculture, mining, construction, manufacturing) |
+| `SI02` | Trade, transportation and utilities |
+| `SI03` | All other services (government, health, education, hospitality, etc.) |
+| `w_geometry` / `h_geometry` | Tract polygons for the work and home ends |
+
+### Analysis
+
+Define destination point
+
+```{r}
+dest_point <- st_sfc(st_point(c(-157.9225, 21.3187)), crs = 4326) |>
+  st_transform(st_crs(hi_od))
+
+# One row per work tract, keeping only the ID and its polygon
+w_tracts <- hi_od[!duplicated(hi_od$w_tract), "w_tract"]
+
+dest_geoid <- w_tracts$w_tract[lengths(st_intersects(w_tracts, dest_point)) > 0]
+dest_geoid
+```
+
+Filter flows and turn into long
+
+```{r}
+top_commutes <- hi_od |>
+  filter(w_tract == dest_geoid, S000 >= 25, h_tract != w_tract)
+
+to_lonlat <- function(g) {
+  g |>
+    st_transform(26904) |>        # UTM 4N for accurate interior points
+    st_point_on_surface() |>
+    st_transform(4326) |>
+    st_coordinates()
+}
+
+h_xy <- to_lonlat(top_commutes$h_geometry)
+w_xy <- to_lonlat(top_commutes$w_geometry)
+
+top_commutes <- top_commutes |>
+  st_drop_geometry() |>           # drops w_geometry (the active column)
+  select(-h_geometry) |>          # h_geometry is a second sfc column, drop it too
+  mutate(h_lon = h_xy[, 1], h_lat = h_xy[, 2],
+         w_lon = w_xy[, 1], w_lat = w_xy[, 2])
+```
+
+Build curved arcs
+
+```{r}
+make_arc <- function(x1, y1, x2, y2, n = 60, curve = 0.25) {
+  mx <- (x1 + x2) / 2; my <- (y1 + y2) / 2
+  cx <- mx - (y2 - y1) * curve               # control point offset
+  cy <- my + (x2 - x1) * curve
+  t  <- seq(0, 1, length.out = n)
+  st_linestring(cbind(
+    (1 - t)^2 * x1 + 2 * (1 - t) * t * cx + t^2 * x2,
+    (1 - t)^2 * y1 + 2 * (1 - t) * t * cy + t^2 * y2
+  ))
+}
+
+flows_sf <- top_commutes |>
+  mutate(
+    geometry = pmap(list(h_lon, h_lat, w_lon, w_lat), make_arc),
+    tooltip  = paste0(S000, " commuters<br>from tract ", h_tract)
+  ) |>
+  st_as_sf(crs = 4326)
+
+origins_sf <- top_commutes |>
+  st_as_sf(coords = c("h_lon", "h_lat"), crs = 4326)
+
+dest_sf <- top_commutes |>
+  slice(1) |>
+  st_as_sf(coords = c("w_lon", "w_lat"), crs = 4326)
+
+```
+
+Map
+
+```{r}
+max_jobs <- max(flows_sf$S000)
+
+m <- maplibre(
+  style   = carto_style("positron"),
+  center  = c(-157.98, 21.42),
+  zoom    = 9.6,
+  pitch   = 50,
+  bearing = -20
+) |>
+  add_line_layer(
+    id         = "flows",
+    source     = flows_sf,
+    line_color = interpolate(
+      column = "S000",
+      values = c(25, max_jobs),
+      stops  = c("#f06400", "#00c800")     # orange -> green, echoing the original
+    ),
+    line_width = interpolate(
+      column = "S000",
+      values = c(25, max_jobs),
+      stops  = c(1, 8)
+    ),
+    line_opacity = 0.8,
+    tooltip      = "tooltip",
+    hover_options = list(line_color = "#ffff00")
+  ) |>
+  add_circle_layer(
+    id           = "origins",
+    source       = origins_sf,
+    circle_color = "#f06400",
+    circle_radius = 3,
+    circle_opacity = 0.8
+  ) |>
+  add_circle_layer(
+    id                  = "destination",
+    source              = dest_sf,
+    circle_color        = "#00c800",
+    circle_radius       = 8,
+    circle_stroke_color = "white",
+    circle_stroke_width = 2
+  ) |>
+  add_legend(
+    "Commuters to the airport / JBPHH tract",
+    values = c("Fewer", "More"),
+    colors = c("#f06400", "#00c800"),
+    type   = "continuous"
+  )
+
+m
+```
+
+### Your Turn
+
+Challenge 1: Recreate [this figure](https://github.com/jamgreen/lehdr/blob/master/vignettes/figures/fig1_balt_self_containment.png) for Hawaii
+
+### map theme
+
+```{r}
+map_theme <- theme_void(base_size = 11) +
+  theme(
+    plot.title        = element_text(face = "bold", size = 12, margin = margin(b = 6)),
+    plot.subtitle     = element_text(size = 10, color = "grey40", margin = margin(b = 10)),
+    plot.caption      = element_text(size = 8, color = "grey50", margin = margin(t = 8)),
+    legend.position   = "right",
+    legend.title      = element_text(size = 9, face = "bold"),
+    legend.text       = element_text(size = 8),
+    plot.margin       = margin(10, 10, 10, 10)
+  )
+```
+
+```{r}
+od_hi <- grab_lodes(
+  state      = "hi",
+  year       = 2019,
+  lodes_type = "od",
+  job_type   = "JT00",
+  segment    = "S000",
+  state_part = "main",
+  agg_geo    = "tract"
+)
+
+```
+
+```{r}
+commute_hi <- compute_commute_stats(od_hi, agg_geo = "tract")
+```
+
+```{r}
+hi_geo <- tracts(state = "HI", year = 2022, cb = TRUE) %>%
+  select(GEOID, geometry)
+```
+
+### Combine two (hi_geo -\> GEOID, commute_hi -\> tract)
+
+```{r}
+commute_map_df <- hi_geo %>%
+  left_join(commute_hi, by = c("GEOID" = "tract"))
+```
+
+```{r}
+mapview(commute_map_df, zcol = 'self_containment')
+```
+
+```{r}
+fig1 <- ggplot(commute_map_df) +
+  geom_sf(aes(fill = self_containment), color = "white", linewidth = 0.2) +
+  scale_fill_distiller(
+    palette  = "YlOrRd",
+    direction = 1,
+    name     = "Self-\ncontainment",
+    labels   = label_percent(accuracy = 1),
+    na.value = "grey85"
+  ) +
+  labs(
+    title    = "Worker self-containment, Hawaii",
+    subtitle = "Share of employed residents who also work within the same Census tract",
+    caption  = "Source: U.S. Census Bureau LODES 2019 via lehdr"
+  ) +
+  map_theme
+
+fig1
+```
+
+Challenge 2: Recreate t[his figure](https://github.com/jamgreen/lehdr/blob/master/vignettes/figures/fig2_md_job_change.png) for a state of your choosing
+
+I chose **CA**.
+
+```{r}
+# workplace (WAC) jobs by county, 2010, 2019
+wac_ca_panel <- grab_lodes(
+  state      = "ca",
+  year       = c(2010, 2019),
+  lodes_type = "wac",
+  job_type   = "JT00",
+  segment    = "S000",
+  agg_geo    = "county"
+) 
+```
+
+```{r}
+change_ca <- compute_lodes_change(
+  wac_ca_panel,
+  geo_col      = "w_county",
+  base_year    = 2010,
+  compare_year = 2019,
+  variables    = "C000"
+)
+```
+
+```{r}
+md_county_geo <- counties(state = "CA", year = 2019, cb = FALSE) %>%
+  mutate(GEOID = paste0(STATEFP, COUNTYFP)) %>%
+  select(GEOID, geometry)
+```
+
+### join the tables
+
+```{r}
+change_map_df <- md_county_geo %>%
+  left_join(change_ca, by = c("GEOID" = "w_county"))
+```
+
+```{r}
+mapview(change_map_df, zcol = 'C000_pct_change')
+```
+
+### map theme
+
+```{r}
+map_theme <- theme_void(base_size = 11) +
+  theme(
+    plot.title        = element_text(face = "bold", size = 12, margin = margin(b = 6)),
+    plot.subtitle     = element_text(size = 10, color = "grey40", margin = margin(b = 10)),
+    plot.caption      = element_text(size = 8, color = "grey50", margin = margin(t = 8)),
+    legend.position   = "right",
+    legend.title      = element_text(size = 9, face = "bold"),
+    legend.text       = element_text(size = 8),
+    plot.margin       = margin(10, 10, 10, 10)
+  )
+```
+
+### Make a map
+
+```{r}
+
+fig2 <- ggplot(change_map_df) +
+  geom_sf(aes(fill = C000_pct_change), color = "white", linewidth = 0.3) +
+  scale_fill_distiller(
+    palette   = "RdYlBu",
+    direction = 1,
+    name      = "% change",
+    labels    = label_percent(accuracy = 1, scale = 1),
+    na.value  = "grey85"
+  ) +
+  labs(
+    title    = "Job growth by county, California, 2010\u20132019",
+    subtitle = "Percent change in total jobs (WAC, all job types)",
+    caption  = "Source: U.S. Census Bureau LODES via lehdr"
+  ) + map_theme
+
+fig2
+```
