@@ -1,0 +1,130 @@
+---
+title: "Water Quality"
+format: html
+editor: visual
+---
+
+### Welcome
+
+Throughout DS 422, we have worked with primarily very clean data. This lab has 2 main objectives:
+
+1.  Practice how to clean some spatial data
+2.  More importantly, explore how to use our geocomputational minds to look at a challenge that is seeming more apparent and serious over time
+    - Why are people getting sick from going surfing after it rains, what can we do to describe this problem spatially and begin to consider solutions
+
+### Data
+
+<https://eha-cloud.doh.hawaii.gov/cwb/#!/landing>
+
+Download here: <https://eha-cloud.doh.hawaii.gov/cwb/#!/sample-test-result/list>
+
+**What is the BEACH Act?**
+
+:   The Beaches Environmental Assessment and Coastal Health (BEACH) Act, promulgated in 2000 is an amendment to the federal Clean Water Act (CWA) which establishes national standard criteria for coastal recreational water monitoring and public notification of possible pollution within coastal recreational waters (beaches). The BEACH Act authorizes the EPA to provide funding to eligible states to implement a water monitoring and public notification program. The BEACH Act only applies to coastal recreational waters (marine beaches) and explicitly excludes inland waters, including waters upstream from the mouth of a river or stream.
+
+Enterococci levels **greater than 130/100 mL** indicates that there may be an increased probability of risk of illness
+
+### Libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(sf)
+library(janitor)
+library(mapview)
+```
+
+```{r}
+wm_data <- read_csv(here("data/Clean_Water_Branch_Beach_Monitoring_Data.csv"))
+
+```
+
+### Data Cleaning
+
+Let's list things in the data that will need cleaning/attention before we can use this for analysis and mapping
+
+- Summarize NA's
+
+- keeping in mind we have multiple reading per station
+
+- \< or \> , and TNTC in final_result
+
+- different measurement
+
+- one occurment tntc
+
+- combining date and time, ensuring uniform format
+
+- is this a spatial dataframe, we want geometries
+
+- spaces in column names
+
+## Cleaning
+
+start with column names
+
+```{r}
+# adding '_' underscore in spaces
+wm_data <- wm_data |>
+  clean_names()
+```
+
+is this a spatial dataframe?
+
+```{r}
+class(wm_data)
+```
+
+can we make this a spatial dataframe
+
+wm_data_sf \<- wm_data \|\>
+
+st_as_sf(coords = c("longitude_decimal_degrees", "latitude_decimal_degrees"), crs = 4326)
+
+```{r}
+wm_data_sf <- wm_data |> 
+  st_as_sf(coords = c("longitude_decimal_degrees", "latitude_decimal_degrees"))
+```
+
+```{r}
+class(wm_data_sf)
+```
+
+numeric values in final_result columns
+
+```{r}
+unique(wm_data_sf$final_result)
+```
+
+filter data for Enterococcus
+
+```{r}
+wm_data_sf_Enterococcus <- wm_data_sf |> 
+  filter(parameter == 'Enterococcus') 
+```
+
+```{r}
+unique(wm_data_sf_Enterococcus$final_result)
+```
+
+```{r}
+table(wm_data_sf_Enterococcus$final_result)
+```
+
+```{r}
+wm_data_sf_Enterococcus <- wm_data_sf_Enterococcus |> 
+  mutate(final_result_numeric = as.numeric(final_result))
+```
+
+```{r}
+wm_data_sf_Enterococcus_average <- wm_data_sf_Enterococcus |> 
+  group_by(location_name) |> 
+  summarise(mean_final_result_numeric = mean(final_result_numeric, na.rm = TRUE)) |>
+  mutate()
+```
+
+```{r}
+mapview(wm_data_sf_Enterococcus_average, zcol = "mean_final_result_numeric")
+```
+
+### Analysis
