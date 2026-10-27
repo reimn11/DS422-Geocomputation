@@ -8,7 +8,7 @@ editor: visual
 
 This is our Geocomputation lab on Employer-Household Dynamics. This is an R analysis [inspired by this post](https://walker-data.com/posts/lodes-2020/)
 
-### Libraries    
+### Libraries
 
 ```{r}
 library(lehdr)
@@ -56,7 +56,7 @@ What do these column names mean?
 Each row is one home-tract-to-work-tract pair. The numbers count **jobs** (in your call, `JT00` means all jobs), so a person with two jobs can appear twice.
 
 | Column | Meaning |
-|------------------------------------|------------------------------------|
+|----|----|
 | `year` | Data year (2022) |
 | `state` | State abbreviation |
 | `w_tract` | GEOID of the **work** tract |
