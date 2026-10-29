@@ -1,0 +1,450 @@
+---
+title: "Water Quality"
+format: html
+editor: visual
+---
+
+## Welcome
+
+Throughout DS 422, we have worked with primarily very clean data. This lab has 2 main objectives:
+
+1.  Practice how to clean some spatial data
+2.  More importantly, explore how to use our geocomputational minds to look at a challenge that is seeming more apparent and serious over time
+    - Why are people getting sick from going surfing after it rains, what can we do to describe this problem spatially and begin to consider solutions
+
+## Data
+
+<https://eha-cloud.doh.hawaii.gov/cwb/#!/landing>
+
+Download here: <https://eha-cloud.doh.hawaii.gov/cwb/#!/sample-test-result/list>
+
+**What is the BEACH Act?**
+
+:   The Beaches Environmental Assessment and Coastal Health (BEACH) Act, promulgated in 2000 is an amendment to the federal Clean Water Act (CWA) which establishes national standard criteria for coastal recreational water monitoring and public notification of possible pollution within coastal recreational waters (beaches). The BEACH Act authorizes the EPA to provide funding to eligible states to implement a water monitoring and public notification program. The BEACH Act only applies to coastal recreational waters (marine beaches) and explicitly excludes inland waters, including waters upstream from the mouth of a river or stream.
+
+Enterococci levels **greater than 130/100 mL** indicates that there may be an increased probability of risk of illness
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(sf)
+library(janitor)
+library(mapview)
+library(plotly)
+```
+
+```{r}
+wm_data <- read_csv(here("data/Clean_Water_Branch_Beach_Monitoring_Data.csv"))
+```
+
+## Data Cleaning
+
+Let's list things in the data that will need cleaning/attention before we can use this for analysis and mapping
+
+- Summarize NA's
+
+- keeping in mind we have multiple readings per station
+
+- \< or \> in final_result
+
+- different measurements
+
+- one occurrence of tnct
+
+- combining date and time, ensuring uniform format
+
+- is this a spatial dataframe, we want geometries
+
+- spaces in column names
+
+#### Enterococcus Example
+
+```{r}
+wm_data_enterococcus <- wm_data |> 
+  filter(Parameter == "Enterococcus")
+```
+
+Clean column names
+
+```{r}
+wm_data_enterococcus <- wm_data_enterococcus |> 
+  clean_names()
+```
+
+```{r}
+wm_data_enterococcus <- wm_data_enterococcus |>
+  rename(latitude  = longitude_decimal_degrees,
+         longitude = latitude_decimal_degrees)
+```
+
+Make an sf object
+
+```{r}
+class(wm_data_enterococcus)
+```
+
+```{r}
+wm_data_enterococcus_sf <- wm_data_enterococcus |> 
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+```
+
+```{r}
+st_bbox(wm_data_enterococcus_sf)
+```
+
+Join Date & Time
+
+```{r}
+ class(wm_data_enterococcus_sf$sample_date)
+ class(wm_data_enterococcus_sf$sample_time_hst)
+```
+
+```{r}
+wm_data_enterococcus_sf <- wm_data_enterococcus_sf |>
+  mutate(sample_datetime = mdy_hms(paste(sample_date, sample_time_hst),
+                                   tz = "Pacific/Honolulu"))
+```
+
+```{r}
+class(wm_data_enterococcus_sf$sample_datetime)
+```
+
+Ensure same unit of measure throughout
+
+```{r}
+unique(wm_data_enterococcus_sf$unit_of_measure)
+```
+
+Handle the various types of entries in final_result
+
+```{r}
+class(wm_data_enterococcus_sf$final_result)
+```
+
+```{r}
+unique(wm_data_enterococcus_sf$final_result)
+```
+
+```{r}
+wm_data_enterococcus_sf <- wm_data_enterococcus_sf |>
+  mutate(
+    result      = parse_number(final_result),   # "> 2005.000" -> 2005, "L.A." -> NA
+    exceeds_130 = result > 130 & !str_detect(final_result, "<")
+  )
+```
+
+```{r}
+table(wm_data_enterococcus_sf$exceeds_130)
+```
+
+```{r}
+wm_data_enterococcus_sf_exceedded <- wm_data_enterococcus_sf |> 
+  filter(exceeds_130 == "TRUE") |> 
+  select(final_result, exceeds_130, result)
+```
+
+How many times did each site exceed 130
+
+```{r}
+site_exceed <- wm_data_enterococcus_sf |>
+  group_by(location_name) |>
+  summarise(n_exceeds_130 = sum(exceeds_130, na.rm = TRUE))
+```
+
+Map it
+
+```{r}
+mapview(site_exceed, zcol = "n_exceeds_130")
+```
+
+Percentage of readings exceeding 130
+
+```{r}
+site_exceed_percent <- wm_data_enterococcus_sf |> 
+  group_by(location_name) |> 
+  summarise(percent_exceeds_130 = 100 * mean(exceeds_130, na.rm = TRUE))
+```
+
+```{r}
+mapview(site_exceed_percent, zcol = "percent_exceeds_130")
+```
+
+Honolii Cove
+
+```{r}
+honolii_cove <- wm_data_enterococcus_sf |> 
+  filter(location_name == "Honolii Cove (Ocean)")
+```
+
+```{r}
+honolii_cove |> 
+  select(final_result, exceeds_130, result)
+```
+
+```{r}
+honolii_line_plot <- ggplot(honolii_cove, aes(x = sample_datetime, y = result)) +
+  geom_line() +
+  geom_point(size = 0.1) +
+  geom_hline(yintercept = 130, color = "red", linetype = "dashed") +
+  theme_minimal()
+
+honolii_line_plot
+```
+
+```{r}
+ggplotly(honolii_line_plot)
+```
+
+### Challenge
+
+Recreate the last 4 code chunks for a location of your own
+
+```{r}
+ala_moana_park_center <- wm_data_enterococcus_sf |> 
+  filter(location_name == "Ala Moana Park, Center")
+```
+
+```{r}
+ala_moana_park_center |> 
+  select(final_result, exceeds_130, result)
+```
+
+```{r}
+ala_moana_line_plot <- ggplot(ala_moana_park_center, aes(x = sample_datetime, y = result)) +
+  geom_line() +
+  geom_point(size = 0.1) +
+  geom_hline(yintercept = 130, color = "red", linetype = "dashed") +
+  theme_minimal()
+
+honolii_line_plot
+```
+
+```{r}
+ggplotly(ala_moana_line_plot)
+```
+
+### Is there another way?
+
+```{r}
+# =============================================================================
+# Mapping brown-water plumes on Oʻahu's North Shore with Sentinel-2
+# Geocomputation in R · North Shore runoff workshop
+#
+# Data: Sentinel-2 L2A (surface reflectance) via Microsoft Planetary Computer
+#       STAC API — free, no account needed (rstac signs the URLs for you).
+# Method: single-band red turbidity (Dogliotti et al. 2015 / Nechad et al.)
+#         + water / cloud / whitewater masks.
+#
+# Untested draft — written without access to the API. Run section by section.
+# =============================================================================
+
+# install.packages(c("rstac", "terra", "sf", "dplyr", "purrr", "mapview"))
+library(rstac)
+library(terra)
+library(sf)
+library(dplyr)
+library(purrr)
+library(mapview)
+
+mapviewOptions(basemaps = c("Esri.WorldImagery", "OpenStreetMap"))
+
+# ---- 1. Area of interest: Kaiaka Bay → Waimea, out ~3 km offshore -----------
+aoi_ll <- st_bbox(c(xmin = -158.13, ymin = 21.57,
+                    xmax = -158.02, ymax = 21.70), crs = 4326)
+aoi_v  <- vect(st_as_sfc(aoi_ll))
+
+# ---- 2. Search the catalog ----------------------------------------------------
+pc <- stac("https://planetarycomputer.microsoft.com/api/stac/v1")
+
+find_scenes <- function(dates, max_cloud = 70) {
+  pc |>
+    stac_search(collections = "sentinel-2-l2a",
+                bbox        = as.numeric(aoi_ll),
+                datetime    = dates,
+                limit       = 100) |>
+    ext_query(`eo:cloud_cover` < max_cloud) |>
+    post_request() |>
+    items_fetch() |>
+    items_sign(sign_fn = sign_planetary_computer())
+}
+
+# October 2026 storm window (advisories issued Oct 16) + a dry-season baseline
+storm    <- find_scenes("2026-10-08/2026-10-27")
+baseline <- find_scenes("2026-08-01/2026-09-30", max_cloud = 30)
+
+scene_table <- function(items) {
+  tibble(
+    i          = seq_along(items$features),
+    id         = map_chr(items$features, "id"),
+    date       = as.Date(map_chr(items$features, ~ .x$properties$datetime)),
+    tile       = map_chr(items$features, ~ .x$properties$`s2:mgrs_tile`),
+    tile_cloud = map_dbl(items$features, ~ .x$properties$`eo:cloud_cover`)
+  )
+}
+
+scene_table(storm)
+# NOTE: eo:cloud_cover is for the whole 110 km tile, not our little AOI.
+# A tile can be 60% cloudy and our coast perfectly clear (or vice versa).
+
+# ---- 3. Helper: read one band, cropped to the AOI ---------------------------
+# Only the needed blocks are downloaded (cloud-optimized GeoTIFFs).
+read_band <- function(item, band) {
+  r <- rast(paste0("/vsicurl/", item$assets[[band]]$href))
+  crop(r, project(aoi_v, crs(r)))
+}
+
+# ---- 4. How clear is OUR coastline? (cheap check using the 20 m SCL band) ----
+# Scene Classification Layer: 3 = cloud shadow, 6 = water,
+#                             8/9 = cloud medium/high, 10 = cirrus
+aoi_clear <- function(item) {
+  scl <- read_band(item, "SCL")
+  v   <- values(scl, na.rm = TRUE)
+  v   <- v[v != 0]                             # 0 = no data
+  c(water_frac = mean(v == 6),
+    cloud_frac = mean(v %in% c(3, 8, 9, 10)))
+}
+
+storm_tbl <- scene_table(storm) |>
+  mutate(clear = map(i, ~ aoi_clear(storm$features[[.x]]))) |>
+  tidyr::unnest_wider(clear) |>
+  arrange(date)
+
+storm_tbl   # pick scenes with low cloud_frac over the AOI
+
+# ---- 5. Process a scene: reflectance → masks → turbidity --------------------
+process_scene <- function(item) {
+  
+  # Processing baseline ≥ 04.00 (Jan 2022 on) adds a +1000 DN offset
+  pb  <- suppressWarnings(as.numeric(item$properties$`s2:processing_baseline`))
+  off <- if (!is.na(pb) && pb >= 4) 1000 else 0
+  refl <- function(r) { r[r == 0] <- NA; (r - off) / 10000 }
+  
+  b3  <- refl(read_band(item, "B03"))                      # green, 10 m
+  b4  <- refl(read_band(item, "B04"))                      # red,   10 m
+  b11 <- resample(refl(read_band(item, "B11")), b4)        # SWIR,  20 m → 10 m
+  scl <- resample(read_band(item, "SCL"), b4, method = "near")
+  
+  # -- Masks --
+  cloud <- scl %in% c(3, 8, 9, 10)
+  # MNDWI (green vs SWIR) finds water better than NDWI when water is muddy
+  water <- ((b3 - b11) / (b3 + b11)) > 0
+  # Water absorbs SWIR almost completely, so any SWIR signal over water means
+  # whitewater (big North Shore surf!), sun glint, or land contamination
+  foam  <- b11 > 0.03
+  
+  # -- Turbidity (FNU), Dogliotti et al. 2015 red-band coefficients --
+  # ρw ≈ L2A surface reflectance (approximation; see caveats)
+  A <- 228.1; C <- 0.1641
+  turb <- ifel(b4 < 0.15, A * b4 / (1 - b4 / C), NA)       # saturates near C
+  
+  turb <- mask(turb, cloud, maskvalues = TRUE)
+  turb <- mask(turb, foam,  maskvalues = TRUE)
+  turb <- mask(turb, water, maskvalues = FALSE)
+  names(turb) <- "turbidity_FNU"
+  
+  list(
+    id    = item$id,
+    date  = as.Date(item$properties$datetime),
+    rgb   = read_band(item, "visual"),   # ready-made 8-bit true colour
+    turb  = turb,
+    foam  = foam
+  )
+}
+
+# ---- 6. Run it on the clearest post-storm scene + the baseline --------------
+best_storm <- storm_tbl |>
+  filter(cloud_frac < 0.3) |>
+  arrange(date, cloud_frac, desc(water_frac)) |>   # earliest date, then clearest, best coverage
+  slice(1)
+
+best_storm   # should be one row
+s_post <- process_scene(storm$features[[best_storm$i]])
+
+base_tbl <- scene_table(baseline) |>
+  mutate(clear = map(i, ~ aoi_clear(baseline$features[[.x]]))) |>
+  tidyr::unnest_wider(clear)
+s_base <- process_scene(baseline$features[[slice_min(base_tbl, cloud_frac, n = 1)$i]])
+
+# ---- 7. Maps ------------------------------------------------------------------
+turb_breaks <- c(0, 1, 2, 5, 10, 20, 50, 200)
+turb_cols   <- hcl.colors(length(turb_breaks) - 1, "YlOrBr")
+
+par(mfrow = c(2, 2), mar = c(1, 1, 2, 1))
+plotRGB(s_base$rgb, main = paste("Baseline", s_base$date))
+plotRGB(s_post$rgb, main = paste("Post-storm", s_post$date))
+plot(s_base$turb, breaks = turb_breaks, col = turb_cols, main = "Turbidity (FNU)")
+plot(s_post$turb, breaks = turb_breaks, col = turb_cols, main = "Turbidity (FNU)")
+par(mfrow = c(1, 1))
+
+# Difference map: where did the storm add sediment?
+turb_diff <- s_post$turb - resample(s_base$turb, s_post$turb)
+plot(turb_diff, col = hcl.colors(50, "Blue-Red 3"), main = "Change in turbidity")
+
+# Interactive, with Esri imagery underneath
+mapview(s_post$turb, col.regions = turb_cols, at = turb_breaks,
+        na.color = "transparent", layer.name = "Turbidity (FNU)")
+
+# ---- 8. Plume extent ----------------------------------------------------------
+plume_threshold <- 10   # FNU — a judgement call; try 5 and 20 too
+
+plume <- as.polygons(s_post$turb > plume_threshold) |>
+  st_as_sf() |>
+  filter(turbidity_FNU == 1) |>
+  st_cast("POLYGON") |>
+  mutate(area_km2 = as.numeric(st_area(geometry)) / 1e6) |>
+  filter(area_km2 > 0.01)   # drop speckle
+
+sum(plume$area_km2)
+mapview(plume, col.regions = "sienna", alpha.regions = 0.5)
+
+# ---- 9. Link to the DOH beach stations ---------------------------------------
+# stations_clean comes from Module 1 (location_id, location_name, lat, lon).
+# Stations sit on the shoreline, where pixels are often surf or sand, so take
+# the median of valid water pixels within 150 m.
+stations_v <- stations_clean |>
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326) |>
+  vect() |>
+  project(crs(s_post$turb))
+
+station_turb <- extract(s_post$turb, buffer(stations_v, 150),
+                        fun = median, na.rm = TRUE)
+
+stations_clean |>
+  mutate(sat_turbidity_FNU = station_turb$turbidity_FNU,
+         image_date        = s_post$date) |>
+  arrange(longitude)    # west → east: Kaiaka … Haleʻiwa … Chun's … Waimea
+
+# ---- 10. Every clear scene → plume area time series ---------------------------
+plume_series <- storm_tbl |>
+  filter(cloud_frac < 0.4) |>
+  mutate(plume_km2 = map_dbl(i, \(k) {
+    s <- process_scene(storm$features[[k]])
+    v <- values(s$turb, na.rm = TRUE)
+    sum(v > plume_threshold) * 100 / 1e6        # 10 m pixels → km²
+  }))
+
+plume_series
+# → join to HCDP rainfall (Module 1) and plot plume area vs. days since storm
+
+# =============================================================================
+# CAVEATS (good discussion material)
+# - Clouds: post-storm days are often cloudy; revisit is ~5 days. If nothing
+#   is clear, try Landsat 8/9 ("landsat-c2-l2" on Planetary Computer; red band
+#   = "red", reflectance = DN * 0.0000275 - 0.2).
+# - Whitewater: big winter surf is bright like sediment. The SWIR mask helps,
+#   but check the true-colour image near the reef break.
+# - Shallow water: in clear water over sand/reef, bottom reflectance inflates
+#   red reflectance → false "turbidity" close to shore. Compare with baseline.
+# - L2A surface reflectance ≈ water-leaving reflectance only approximately
+#   (no sun-glint or adjacency correction). Treat FNU values as relative
+#   unless validated against DOH in-situ turbidity.
+# - Very turbid water saturates the red band (> ~0.15); Dogliotti switch to
+#   the NIR band for those pixels.
+# =============================================================================
+```
+
+```{r}
+
+```
