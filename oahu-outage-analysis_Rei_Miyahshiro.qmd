@@ -62,8 +62,8 @@ August 17 is placed in the storm window rather than recovery. VIIRS captures aro
 
 ```{r bearer-token}
 
-bearer <- get_nasa_token(username = "reimn17", 
-                         password = "C534dpcry/6b/#/")
+bearer <- get_nasa_token(username = Sys.getenv("EARTHDATA_USER"), 
+                         password = Sys.getenv("EARTHDATA_PASS"))
 ```
 
 ## Setting the baseline and storm dates

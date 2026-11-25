@@ -26,7 +26,6 @@ library(tidyterra)
 library(lubridate)
 
 #### Define NASA bearer token
-bearer <- "eyJ0eXAiOiJKV1QiLCJvcmlnaW4iOiJFYXJ0aGRhdGEgTG9naW4iLCJzaWciOiJlZGxqd3RwdWJrZXlfb3BzIiwiYWxnIjoiUlMyNTYifQ.eyJ0eXBlIjoiVXNlciIsInVpZCI6InJlaW1uMTciLCJleHAiOjE3OTI4Nzk4MDgsImlhdCI6MTc4NzY5NTgwOCwiaXNzIjoiaHR0cHM6Ly91cnMuZWFydGhkYXRhLm5hc2EuZ292IiwiaWRlbnRpdHlfcHJvdmlkZXIiOiJlZGxfb3BzIiwiYWNyIjoiZWRsIiwiYXNzdXJhbmNlX2xldmVsIjozfQ.RbGg1fsSh6f3RsrcRuVkSKOjNlPePsjwyqfSztNOfKWeUPE3tBw3eD0ENb0raiUq4tctl2Rnn7Ny1OBPYwubr_3qHeiXodARL8nZmbr28OPDAbnRiNyyx0vBt3D8FZEO5M_qEfGxS-Y8j9bikrCOOxaEekNOsNbKTfSVg4aVHSCNWT0cOWkO4_Ne1Vkl-JNrPdjRW6seyNswEISS1Guluo6VYlPsI_ohLxYRRim9Ufjn-nXAWVEIxnBIUqt-nw7RliqUiscG0j8ZVChpRfD5ft6cbAF5V2-0Og710sWZSF-Nc_pykrs1u6uFPp4qS0HFGzpuSW_Y_MRXzjGLCXbAUQ"
 
 ### ROI
 # Define region of interest (roi). The roi must be (1) an sf polygon and (2)
@@ -64,8 +63,8 @@ crs(roi_hawaii)
 #| eval:false
 library(blackmarbler)
 
-bearer <- get_nasa_token(username = "reimn17", 
-                         password = "C534dpcry/6b/#/")
+bearer <- get_nasa_token(username = Sys.getenv("EARTHDATA_USER"), 
+                         password = Sys.getenv("EARTHDATA_PASS"))
 
 r <- bm_raster(roi_sf = roi_hawaii,
                product_id = "VNP46A3", # VNP46A2 request the montly ,VNP46A2 is daily
@@ -74,8 +73,8 @@ r <- bm_raster(roi_sf = roi_hawaii,
 ```
 
 ```{r}
-bearer <- get_nasa_token(username = "reimn17", 
-                         password = "C534dpcry/6b/#/")
+bearer <- get_nasa_token(username = Sys.getenv("EARTHDATA_USER"), 
+                         password = Sys.getenv("EARTHDATA_PASS"))
 ```
 
 ```{r}
