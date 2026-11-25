@@ -5,7 +5,7 @@
 **Date:**
  11/24/2026
 ---
- 
+
 Fill this out before you start on your analysis. Write your answers under each question. A few sentences is fine for most of them. Be specific, though: "I'll look at land use" is too vague, but "I'll compare sugar land change across Maui from 2001 to 2021" is better.
  
 Download this file and add it to your DS422 Repository, then edit right in the github browser.
