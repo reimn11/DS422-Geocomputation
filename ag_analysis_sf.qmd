@@ -315,7 +315,7 @@ A non-empty result here (like `"Sugar"` vanishing) means part of any acreage "lo
 ### Function reference summary
 
 | Function | Purpose in this analysis | Documentation |
-|------------------------|------------------------|------------------------|
+|----|----|----|
 | `st_read()` | Load spatial files into `sf` objects | [link](https://r-spatial.github.io/sf/reference/st_read.html) |
 | `st_crs()` | Inspect/compare coordinate reference systems | [link](https://r-spatial.github.io/sf/reference/st_crs.html) |
 | `st_geometry_type()` | Check geometry type consistency | [link](https://r-spatial.github.io/sf/reference/st_geometry_type.html) |

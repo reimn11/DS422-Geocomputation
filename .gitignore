@@ -2,3 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+.RData
+.RDataTmp*
+.Rhistory
+.Rproj.user

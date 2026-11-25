@@ -28,7 +28,7 @@ library(vembedr)
 options(tigris_use_cache = TRUE)
 ```
 
-# Summary 
+# Summary
 
 Hurricane Lala passed south of the Hawaiian Islands in mid-August 2026, striking Hawaiʻi Island as a Category 1 storm on August 15 before tracking west toward Oʻahu. Hawaiian Electric reported roughly 9,500 Oʻahu customers without power late on August 15; by 7 a.m. on August 16 that figure had risen to approximately 110,700, close to a quarter of the island's customer base.
 
@@ -47,7 +47,7 @@ Electric light is the dominant source of that signal over developed land. If the
 Three periods structure the analysis:
 
 | Period | Dates | Nights | Treatment |
-|------------------|------------------|------------------|------------------|
+|----|----|----|----|
 | Baseline | Aug 3 – Aug 13 | 11 requested, 7 returned | Averaged into one reference image |
 | Storm | Aug 14 – Aug 17 | 4 | Compared individually |
 | Recovery | Aug 18 – Aug 21 | 4 | Compared individually |
